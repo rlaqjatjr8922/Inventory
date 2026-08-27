@@ -220,6 +220,10 @@ function addNewPartRow() {
         "part-input-row";
 
 
+    item.style.gridTemplateColumns =
+        "150px 150px 1fr 90px 80px";
+
+
     item.innerHTML = `
 
         <select class="part-type">
@@ -240,6 +244,16 @@ function addNewPartRow() {
             class="part-name"
             type="text"
             placeholder="부품 이름"
+        >
+
+
+        <input
+            class="part-quantity"
+            type="number"
+            min="1"
+            step="1"
+            value="1"
+            placeholder="수량"
         >
 
 
@@ -278,7 +292,7 @@ function getNewParts() {
 
     const rows =
         document.querySelectorAll(
-            ".part-input-row"
+            "#new-parts-list .part-input-row"
         );
 
 
@@ -311,16 +325,43 @@ function getNewParts() {
                 .trim();
 
 
+        const quantityInput =
+            row.querySelector(
+                ".part-quantity"
+            );
+
+
+        const quantity =
+            Math.max(
+                1,
+                Math.floor(
+                    Number(
+                        quantityInput
+                            ? quantityInput.value
+                            : 1
+                    ) || 1
+                )
+            );
+
+
         if (!name) {
             continue;
         }
 
 
-        parts.push({
-            "종류": type,
-            "고장여부": status,
-            "이름": name
-        });
+        for (
+            let index = 0;
+            index < quantity;
+            index++
+        ) {
+
+            parts.push({
+                "종류": type,
+                "고장여부": status,
+                "이름": name
+            });
+
+        }
 
     }
 
