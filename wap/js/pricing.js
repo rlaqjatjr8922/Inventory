@@ -1,33 +1,20 @@
 const PRICE_FIELD_DEFS = [
-    {
-        key: "목표판매가",
-        className: "part-target-price",
-        editId: "edit-target-price",
-        label: "목표판매가"
-    },
-    {
-        key: "최저판매가",
-        className: "part-minimum-price",
-        editId: "edit-minimum-price",
-        label: "최저판매가"
-    },
-    {
-        key: "수리비",
-        className: "part-repair-cost",
-        editId: "edit-repair-cost",
-        label: "수리비"
-    }
+    { key: "목표판매가", className: "part-target-price", editId: "edit-target-price", label: "목표판매가" },
+    { key: "최저판매가", className: "part-minimum-price", editId: "edit-minimum-price", label: "최저판매가" },
+    { key: "수리비", className: "part-repair-cost", editId: "edit-repair-cost", label: "수리비" }
 ];
 
 
 function pricingMoney(value) {
+    return Number(value || 0).toLocaleString("ko-KR") + "원";
+}
 
-    return (
-        Number(value || 0)
-            .toLocaleString("ko-KR")
-        + "원"
+
+function safePrice(value) {
+    return Math.max(
+        0,
+        Math.floor(Number(value) || 0)
     );
-
 }
 
 
@@ -37,104 +24,74 @@ function addPricingFieldsToBuyRow(row) {
         return;
     }
 
+    const removeButton = row.querySelector(
+        ".remove-part-button"
+    );
+
+    if (!removeButton) {
+        return;
+    }
 
     row.dataset.pricingReady = "1";
 
-
-    const removeButton =
-        row.querySelector(
-            ".remove-part-button"
-        );
-
-
     for (const def of PRICE_FIELD_DEFS) {
 
-        const input =
-            document.createElement(
-                "input"
-            );
+        const input = document.createElement("input");
 
-        input.className =
-            def.className;
-
+        input.className = def.className;
         input.type = "number";
         input.min = "0";
         input.step = "1";
         input.value = "0";
         input.placeholder = def.label;
 
-
         row.insertBefore(
             input,
             removeButton
         );
-
     }
-
 
     row.style.gridTemplateColumns =
         "130px 130px minmax(180px,1fr) 80px 120px 120px 110px 80px";
-
 }
 
 
 function enhanceExistingBuyRows() {
-
     document
         .querySelectorAll(
             "#new-parts-list .part-input-row"
         )
-        .forEach(
-            addPricingFieldsToBuyRow
-        );
-
+        .forEach(addPricingFieldsToBuyRow);
 }
 
 
 function addPricingFieldsToEditPage() {
 
-    const statusGroup =
-        document
-            .getElementById(
-                "edit-part-status"
-            )
-            ?.closest(
-                ".form-group"
-            );
-
+    const statusGroup = document
+        .getElementById("edit-part-status")
+        ?.closest(".form-group");
 
     if (!statusGroup) {
         return;
     }
 
-
     let anchor = statusGroup;
-
 
     for (const def of PRICE_FIELD_DEFS) {
 
-        if (
-            document.getElementById(
-                def.editId
-            )
-        ) {
+        let input = document.getElementById(
+            def.editId
+        );
+
+        if (input) {
             continue;
         }
 
-
-        const group =
-            document.createElement(
-                "div"
-            );
-
-        group.className =
-            "form-group";
+        const group = document.createElement("div");
+        group.className = "form-group";
 
         group.innerHTML = `
-            <label for="${def.editId}">
-                ${def.label}
-            </label>
-
+            <label for="${def.editId}">${def.label}</label>
             <input
                 id="${def.editId}"
                 type="number"
@@ -144,25 +101,17 @@ function addPricingFieldsToEditPage() {
             >
         `;
 
-
-        anchor.after(
-            group
-        );
-
+        anchor.after(group);
         anchor = group;
-
     }
-
 }
 
 
 function addPricingColumnsToTable() {
 
-    const headerRow =
-        document.querySelector(
-            "#parts-result-table thead tr"
-        );
-
+    const headerRow = document.querySelector(
+        "#parts-result-table thead tr"
+    );
 
     if (
         !headerRow
@@ -171,408 +120,194 @@ function addPricingColumnsToTable() {
         return;
     }
 
-
-    headerRow.dataset.pricingReady = "1";
-
-
-    const cells =
-        headerRow.querySelectorAll(
-            "th"
-        );
-
-
-    const buyGroupHeader =
-        cells[4];
-
+    const buyGroupHeader = headerRow.children[4];
 
     for (const def of PRICE_FIELD_DEFS) {
-
-        const th =
-            document.createElement(
-                "th"
-            );
-
-        th.textContent =
-            def.label;
-
-
-        headerRow.insertBefore(
-            th,
-            buyGroupHeader
-        );
-
+        const th = document.createElement("th");
+        th.textContent = def.label;
+        headerRow.insertBefore(th, buyGroupHeader);
     }
 
+    headerRow.dataset.pricingReady = "1";
 }
 
 
-const originalAddNewPartRow =
-    window.addNewPartRow;
+function addPricingCellsToRenderedRows() {
 
+    document
+        .querySelectorAll("#parts-table tr")
+        .forEach(row => {
 
-if (typeof originalAddNewPartRow === "function") {
+            if (row.dataset.pricingReady === "1") {
+                return;
+            }
 
-    window.addNewPartRow = function () {
+            const id = Number(
+                row.children[0]
+                    ?.textContent
+                    ?.trim()
+            );
 
-        originalAddNewPartRow();
+            const part = cachedParts.find(
+                item => Number(item.id) === id
+            );
 
-        enhanceExistingBuyRows();
+            if (!part) {
+                return;
+            }
 
-    };
+            const buyGroupCell = row.children[4];
 
+            for (const def of PRICE_FIELD_DEFS) {
+                const td = document.createElement("td");
+                td.textContent = pricingMoney(
+                    part[def.key]
+                );
+                row.insertBefore(td, buyGroupCell);
+            }
+
+            row.dataset.pricingReady = "1";
+        });
 }
 
 
-const originalGetNewParts =
-    window.getNewParts;
+function fillPartEditPrices(partId) {
 
+    const part = cachedParts.find(
+        item =>
+            Number(item.id)
+            === Number(partId)
+    );
+
+    if (!part) {
+        return;
+    }
+
+    for (const def of PRICE_FIELD_DEFS) {
+        const input = document.getElementById(
+            def.editId
+        );
+
+        if (input) {
+            input.value = safePrice(
+                part[def.key]
+            );
+        }
+    }
+}
+
+
+function getPricePayloadFromPartEdit() {
+
+    const result = {};
+
+    for (const def of PRICE_FIELD_DEFS) {
+        result[def.key] = safePrice(
+            document.getElementById(
+                def.editId
+            )?.value
+        );
+    }
+
+    return result;
+}
+
+
+const originalGetNewParts = window.getNewParts;
 
 if (typeof originalGetNewParts === "function") {
 
     window.getNewParts = function () {
 
-        const rows =
-            document.querySelectorAll(
-                "#new-parts-list .part-input-row"
-            );
+        const rows = document.querySelectorAll(
+            "#new-parts-list .part-input-row"
+        );
 
         const parts = [];
 
-
         for (const row of rows) {
 
-            const type =
-                Number(
-                    row.querySelector(
-                        ".part-type"
-                    ).value
-                );
-
-            const status =
-                Number(
-                    row.querySelector(
-                        ".part-status"
-                    ).value
-                );
-
-            const name =
-                row.querySelector(
-                    ".part-name"
-                ).value.trim();
-
-            const quantity =
-                Math.max(
-                    1,
-                    Math.floor(
-                        Number(
-                            row.querySelector(
-                                ".part-quantity"
-                            )?.value
-                        ) || 1
-                    )
-                );
-
+            const name = row
+                .querySelector(".part-name")
+                ?.value
+                .trim();
 
             if (!name) {
                 continue;
             }
 
+            const type = Number(
+                row.querySelector(".part-type")?.value
+            );
 
-            const priceData = {};
+            const status = Number(
+                row.querySelector(".part-status")?.value
+            );
 
+            const quantity = Math.max(
+                1,
+                Math.floor(
+                    Number(
+                        row.querySelector(
+                            ".part-quantity"
+                        )?.value
+                    ) || 1
+                )
+            );
+
+            const prices = {};
 
             for (const def of PRICE_FIELD_DEFS) {
-
-                priceData[def.key] =
-                    Math.max(
-                        0,
-                        Math.floor(
-                            Number(
-                                row.querySelector(
-                                    `.${def.className}`
-                                )?.value
-                            ) || 0
-                        )
-                    );
-
+                prices[def.key] = safePrice(
+                    row.querySelector(
+                        `.${def.className}`
+                    )?.value
+                );
             }
-
 
             for (
                 let index = 0;
                 index < quantity;
                 index++
             ) {
-
                 parts.push({
                     "종류": type,
                     "고장여부": status,
                     "이름": name,
-                    ...priceData
+                    ...prices
                 });
-
             }
-
         }
 
-
         return parts;
-
     };
-
 }
 
 
-const originalRenderParts =
-    window.renderParts;
-
+const originalRenderParts = window.renderParts;
 
 if (typeof originalRenderParts === "function") {
 
     window.renderParts = function () {
-
         originalRenderParts();
-
-
-        const rows =
-            document.querySelectorAll(
-                "#parts-table tr"
-            );
-
-
-        rows.forEach(
-            row => {
-
-                const id =
-                    Number(
-                        row.children[0]
-                            ?.textContent
-                            ?.trim()
-                    );
-
-                const part =
-                    cachedParts.find(
-                        item =>
-                            Number(item.id)
-                            === id
-                    );
-
-
-                if (!part) {
-                    return;
-                }
-
-
-                const buyGroupCell =
-                    row.children[4];
-
-
-                for (const def of PRICE_FIELD_DEFS) {
-
-                    const td =
-                        document.createElement(
-                            "td"
-                        );
-
-                    td.textContent =
-                        pricingMoney(
-                            part[def.key]
-                        );
-
-
-                    row.insertBefore(
-                        td,
-                        buyGroupCell
-                    );
-
-                }
-
-            }
-        );
-
+        addPricingCellsToRenderedRows();
     };
-
 }
 
 
-const originalOpenPartEdit =
-    window.openPartEdit;
-
+const originalOpenPartEdit = window.openPartEdit;
 
 if (typeof originalOpenPartEdit === "function") {
 
     window.openPartEdit = function (partId) {
-
-        originalOpenPartEdit(
-            partId
-        );
-
-
-        const part =
-            cachedParts.find(
-                item =>
-                    Number(item.id)
-                    === Number(partId)
-            );
-
-
-        if (!part) {
-            return;
-        }
-
-
-        for (const def of PRICE_FIELD_DEFS) {
-
-            const input =
-                document.getElementById(
-                    def.editId
-                );
-
-            if (input) {
-                input.value =
-                    Number(
-                        part[def.key]
-                        || 0
-                    );
-            }
-
-        }
-
+        originalOpenPartEdit(partId);
+        fillPartEditPrices(partId);
     };
-
-}
-
-
-const originalSavePart =
-    window.savePart;
-
-
-if (typeof originalSavePart === "function") {
-
-    window.savePart = async function () {
-
-        if (
-            editingPartId === null
-        ) {
-            return;
-        }
-
-
-        const name =
-            document
-                .getElementById(
-                    "edit-part-name"
-                )
-                .value
-                .trim();
-
-        const type =
-            Number(
-                document.getElementById(
-                    "edit-part-type"
-                ).value
-            );
-
-        const status =
-            Number(
-                document.getElementById(
-                    "edit-part-status"
-                ).value
-            );
-
-        const message =
-            document.getElementById(
-                "edit-part-message"
-            );
-
-
-        if (!name) {
-            message.textContent =
-                "이름을 입력해주세요.";
-            return;
-        }
-
-
-        const payload = {
-            "이름": name,
-            "종류": type,
-            "고장여부": status
-        };
-
-
-        for (const def of PRICE_FIELD_DEFS) {
-
-            payload[def.key] =
-                Math.max(
-                    0,
-                    Math.floor(
-                        Number(
-                            document.getElementById(
-                                def.editId
-                            )?.value
-                        ) || 0
-                    )
-                );
-
-        }
-
-
-        try {
-
-            const response =
-                await fetch(
-                    `/api/parts/${editingPartId}`,
-                    {
-                        method: "PUT",
-                        headers: {
-                            "Content-Type":
-                                "application/json"
-                        },
-                        body:
-                            JSON.stringify(
-                                payload
-                            )
-                    }
-                );
-
-            const result =
-                await response.json();
-
-
-            if (!response.ok) {
-                message.textContent =
-                    result.detail
-                    || "수정 실패";
-                return;
-            }
-
-
-            editingPartId = null;
-
-            await loadParts();
-
-            openPage(
-                "inventory"
-            );
-
-        }
-        catch (error) {
-
-            console.error(error);
-
-            message.textContent =
-                "서버 연결 실패";
-
-        }
-
-    };
-
 }
 
 
 const originalAddTransactionPartRow =
     window.addTransactionPartRow;
-
 
 if (
     typeof originalAddTransactionPartRow
@@ -583,37 +318,25 @@ if (
         part = null
     ) {
 
-        originalAddTransactionPartRow(
-            part
+        originalAddTransactionPartRow(part);
+
+        const list = document.getElementById(
+            "edit-transaction-parts-list"
         );
 
-
-        const list =
-            document.getElementById(
-                "edit-transaction-parts-list"
-            );
-
-        const row =
-            list?.lastElementChild;
-
+        const row = list?.lastElementChild;
 
         if (!row) {
             return;
         }
 
-
-        const removeButton =
-            row.querySelector(
-                ".remove-part-button"
-            );
-
+        const removeButton = row.querySelector(
+            ".remove-part-button"
+        );
 
         for (const def of PRICE_FIELD_DEFS) {
 
-            const input =
-                document.createElement(
-                    "input"
-                );
+            const input = document.createElement("input");
 
             input.className =
                 `edit-${def.className}`;
@@ -622,32 +345,24 @@ if (
             input.min = "0";
             input.step = "1";
             input.placeholder = def.label;
-            input.value =
-                Number(
-                    part?.[def.key]
-                    || 0
-                );
-
+            input.value = safePrice(
+                part?.[def.key]
+            );
 
             row.insertBefore(
                 input,
                 removeButton
             );
-
         }
-
 
         row.style.gridTemplateColumns =
             "130px 130px minmax(180px,1fr) 120px 120px 110px 80px";
-
     };
-
 }
 
 
 const originalGetTransactionEditParts =
     window.getTransactionEditParts;
-
 
 if (
     typeof originalGetTransactionEditParts
@@ -656,92 +371,189 @@ if (
 
     window.getTransactionEditParts = function () {
 
-        const rows =
-            document.querySelectorAll(
-                "#edit-transaction-parts-list .part-input-row"
-            );
+        const rows = document.querySelectorAll(
+            "#edit-transaction-parts-list .part-input-row"
+        );
 
         const result = [];
 
-
         for (const row of rows) {
 
-            const name =
-                row
-                    .querySelector(
-                        ".edit-transaction-part-name"
-                    )
-                    .value
-                    .trim();
-
+            const name = row
+                .querySelector(
+                    ".edit-transaction-part-name"
+                )
+                ?.value
+                .trim();
 
             if (!name) {
                 continue;
             }
 
-
             const data = {
                 "종류": Number(
                     row.querySelector(
                         ".edit-transaction-part-type"
-                    ).value
+                    )?.value
                 ),
                 "고장여부": Number(
                     row.querySelector(
                         ".edit-transaction-part-status"
-                    ).value
+                    )?.value
                 ),
                 "이름": name
             };
 
-
             for (const def of PRICE_FIELD_DEFS) {
-
-                data[def.key] =
-                    Math.max(
-                        0,
-                        Math.floor(
-                            Number(
-                                row.querySelector(
-                                    `.edit-${def.className}`
-                                )?.value
-                            ) || 0
-                        )
-                    );
-
+                data[def.key] = safePrice(
+                    row.querySelector(
+                        `.edit-${def.className}`
+                    )?.value
+                );
             }
-
 
             if (row.dataset.partId) {
-                data.id =
-                    Number(
-                        row.dataset.partId
-                    );
+                data.id = Number(
+                    row.dataset.partId
+                );
             }
 
-
-            result.push(
-                data
-            );
-
+            result.push(data);
         }
 
-
         return result;
+    };
+}
 
+
+async function pricingSavePart() {
+
+    if (editingPartId === null) {
+        return;
+    }
+
+    const message = document.getElementById(
+        "edit-part-message"
+    );
+
+    const name = document
+        .getElementById("edit-part-name")
+        .value
+        .trim();
+
+    if (!name) {
+        message.textContent =
+            "이름을 입력해주세요.";
+        return;
+    }
+
+    const payload = {
+        "이름": name,
+        "종류": Number(
+            document.getElementById(
+                "edit-part-type"
+            ).value
+        ),
+        "고장여부": Number(
+            document.getElementById(
+                "edit-part-status"
+            ).value
+        ),
+        ...getPricePayloadFromPartEdit()
     };
 
+    try {
+
+        const response = await fetch(
+            `/api/parts/${editingPartId}`,
+            {
+                method: "PUT",
+                headers: {
+                    "Content-Type":
+                        "application/json"
+                },
+                body: JSON.stringify(payload)
+            }
+        );
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            message.textContent =
+                result.detail || "수정 실패";
+            return;
+        }
+
+        editingPartId = null;
+
+        await loadParts();
+
+        openPage("inventory");
+
+    }
+    catch (error) {
+        console.error(error);
+        message.textContent =
+            "서버 연결 실패";
+    }
+}
+
+
+const buyList = document.getElementById(
+    "new-parts-list"
+);
+
+if (buyList) {
+    const observer = new MutationObserver(
+        () => {
+            enhanceExistingBuyRows();
+        }
+    );
+
+    observer.observe(
+        buyList,
+        {
+            childList: true
+        }
+    );
+}
+
+
+const savePartButton = document.getElementById(
+    "save-part-button"
+);
+
+if (savePartButton) {
+    savePartButton.addEventListener(
+        "click",
+        event => {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            pricingSavePart();
+        },
+        true
+    );
+}
+
+
+const editAddPartButton = document.getElementById(
+    "edit-add-part-button"
+);
+
+if (editAddPartButton) {
+    editAddPartButton.addEventListener(
+        "click",
+        event => {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            window.addTransactionPartRow();
+        },
+        true
+    );
 }
 
 
 addPricingFieldsToEditPage();
 addPricingColumnsToTable();
 enhanceExistingBuyRows();
-
-
-if (
-    typeof renderParts
-    === "function"
-) {
-    renderParts();
-}
+addPricingCellsToRenderedRows();
