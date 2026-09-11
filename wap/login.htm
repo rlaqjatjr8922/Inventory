@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>심심PC 관리자 로그인</title>
+    <link rel="icon" href="data:,">
+    <style>
+        * { box-sizing: border-box; }
+        html, body { margin: 0; min-height: 100%; }
+        body {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            font-family: Arial, "Malgun Gothic", sans-serif;
+            background: #f3f4f6;
+            color: #111827;
+        }
+        .login-card {
+            width: min(100%, 390px);
+            padding: 28px;
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            background: white;
+            box-shadow: 0 10px 30px rgba(17, 24, 39, 0.08);
+        }
+        .brand {
+            margin: 0 0 6px;
+            color: #6b7280;
+            font-size: 13px;
+            font-weight: 700;
+        }
+        h1 {
+            margin: 0 0 24px;
+            font-size: 25px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 700;
+        }
+        input {
+            width: 100%;
+            min-height: 50px;
+            padding: 12px 14px;
+            border: 1px solid #d1d5db;
+            border-radius: 10px;
+            font-size: 16px;
+            outline: none;
+        }
+        input:focus { border-color: #111827; }
+        button {
+            width: 100%;
+            min-height: 50px;
+            margin-top: 14px;
+            border: 0;
+            border-radius: 10px;
+            background: #111827;
+            color: white;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        button:disabled { opacity: 0.6; cursor: default; }
+        .message {
+            min-height: 20px;
+            margin: 12px 0 0;
+            color: #dc2626;
+            font-size: 13px;
+            font-weight: 700;
+        }
+        .customer-link {
+            display: block;
+            margin-top: 18px;
+            color: #6b7280;
+            font-size: 13px;
+            text-align: center;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <main class="login-card">
+        <p class="brand">심심PC</p>
+        <h1>관리자 로그인</h1>
+
+        <form id="login-form">
+            <label for="password">비밀번호</label>
+            <input
+                id="password"
+                type="password"
+                autocomplete="current-password"
+                required
+                autofocus
+            >
+            <button id="login-button" type="submit">로그인</button>
+            <p id="login-message" class="message"></p>
+        </form>
+
+        <a class="customer-link" href="/customer">손님용 판매 재고 보기</a>
+    </main>
+
+    <script>
+        const form = document.getElementById("login-form");
+        const password = document.getElementById("password");
+        const button = document.getElementById("login-button");
+        const message = document.getElementById("login-message");
+
+        form.addEventListener("submit", async event => {
+            event.preventDefault();
+            message.textContent = "";
+            button.disabled = true;
+            button.textContent = "확인 중...";
+
+            try {
+                const response = await fetch("/api/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ password: password.value })
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    message.textContent = result.detail || "비밀번호가 올바르지 않습니다.";
+                    password.select();
+                    return;
+                }
+
+                location.replace("/");
+            }
+            catch (error) {
+                console.error(error);
+                message.textContent = "서버에 연결하지 못했습니다.";
+            }
+            finally {
+                button.disabled = false;
+                button.textContent = "로그인";
+            }
+        });
+    </script>
+</body>
+</html>
