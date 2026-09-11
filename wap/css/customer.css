@@ -10,7 +10,7 @@ body {
 
 body {
     font-family: Arial, "Malgun Gothic", sans-serif;
-    background: #f3f4f6;
+    background: #ffffff;
     color: #111827;
 }
 
@@ -23,14 +23,14 @@ body {
     align-items: center;
     justify-content: space-between;
     gap: 16px;
-    padding: 22px 24px;
-    background: #111827;
-    color: white;
+    padding: 20px 24px;
+    border-bottom: 1px solid #ececec;
+    background: white;
 }
 
 .brand-subtitle {
     margin: 0 0 4px;
-    color: #cbd5e1;
+    color: #6b7280;
     font-size: 13px;
     font-weight: 700;
 }
@@ -41,23 +41,24 @@ body {
 }
 
 .stock-count {
-    padding: 8px 12px;
+    padding: 7px 11px;
     border-radius: 999px;
-    background: rgba(255,255,255,0.12);
+    background: #f3f4f6;
+    font-size: 13px;
     font-weight: 700;
 }
 
 .customer-main {
-    max-width: 1100px;
+    max-width: 1200px;
     margin: 0 auto;
-    padding: 24px;
+    padding: 22px 20px 40px;
 }
 
 .customer-tools {
     display: grid;
     grid-template-columns: 1fr 180px;
     gap: 10px;
-    margin-bottom: 18px;
+    margin-bottom: 20px;
 }
 
 .customer-tools input,
@@ -79,58 +80,112 @@ body {
 
 .product-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 14px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 26px 18px;
 }
 
 .product-card {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
     min-width: 0;
-    padding: 18px;
-    border: 1px solid #e5e7eb;
-    border-radius: 16px;
-    background: white;
-    box-shadow: 0 3px 14px rgba(17, 24, 39, 0.05);
+    cursor: pointer;
+    outline: none;
 }
 
-.product-badge {
-    align-self: flex-start;
-    padding: 5px 9px;
-    border-radius: 999px;
-    background: #eef2ff;
+.product-card:focus-visible .product-image-area {
+    box-shadow: 0 0 0 3px #111827;
+}
+
+.product-image-area {
+    position: relative;
+    width: 100%;
+    overflow: hidden;
+    aspect-ratio: 1 / 1;
+    border-radius: 13px;
+    background: #f3f4f6;
+}
+
+.product-image,
+.product-image-placeholder {
+    width: 100%;
+    height: 100%;
+}
+
+.product-image {
+    display: block;
+    object-fit: cover;
+    transition: transform 0.2s ease;
+}
+
+.product-card:hover .product-image {
+    transform: scale(1.025);
+}
+
+.product-image-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    background: linear-gradient(145deg, #111827, #374151);
+    color: white;
+}
+
+.product-image-placeholder span {
+    font-size: clamp(25px, 5vw, 38px);
+    font-weight: 900;
+}
+
+.product-image-placeholder small {
+    color: #cbd5e1;
     font-size: 12px;
     font-weight: 700;
 }
 
-.product-card h2 {
-    margin: 0;
-    min-height: 48px;
-    font-size: 19px;
-    line-height: 1.35;
+.product-badge {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    padding: 5px 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.92);
+    color: #111827;
+    font-size: 11px;
+    font-weight: 800;
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.08);
+}
+
+.product-card-body {
+    padding: 12px 1px 0;
 }
 
 .product-price {
-    margin-top: auto;
-    font-size: 22px;
-    font-weight: 800;
+    margin-bottom: 7px;
+    font-size: 23px;
+    font-weight: 900;
+    letter-spacing: -0.6px;
 }
 
-.detail-button {
-    width: 100%;
-    min-height: 44px;
-    border: 0;
-    border-radius: 10px;
-    background: #111827;
-    color: white;
-    font-size: 14px;
+.product-card h2 {
+    display: -webkit-box;
+    overflow: hidden;
+    margin: 0;
+    min-height: 45px;
+    color: #111827;
+    font-size: 17px;
+    font-weight: 500;
+    line-height: 1.35;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.product-status {
+    margin-top: 8px;
+    color: #6b7280;
+    font-size: 12px;
     font-weight: 700;
-    cursor: pointer;
 }
 
 .empty-state {
-    padding: 60px 20px;
+    padding: 70px 20px;
     text-align: center;
     color: #6b7280;
 }
@@ -144,7 +199,7 @@ body {
 .modal-backdrop {
     position: absolute;
     inset: 0;
-    background: rgba(0,0,0,0.45);
+    background: rgba(0, 0, 0, 0.45);
 }
 
 .modal-panel {
@@ -227,51 +282,69 @@ body {
     line-height: 1.5;
 }
 
-@media (max-width: 800px) {
+@media (max-width: 900px) {
     .product-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 }
 
-@media (max-width: 560px) {
+@media (max-width: 700px) {
     .customer-header {
-        padding: 18px 16px;
+        padding: 17px 14px;
     }
 
     .customer-header h1 {
-        font-size: 22px;
+        font-size: 21px;
     }
 
     .customer-main {
-        padding: 14px;
+        padding: 14px 12px 32px;
     }
 
     .customer-tools {
         grid-template-columns: 1fr;
+        gap: 8px;
+        margin-bottom: 16px;
     }
 
     .customer-tools input,
     .customer-tools select {
-        min-height: 50px;
+        min-height: 48px;
         font-size: 16px;
     }
 
     .product-grid {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 22px 10px;
     }
 
-    .product-card {
-        padding: 16px;
+    .product-image-area {
+        border-radius: 10px;
+    }
+
+    .product-badge {
+        top: 7px;
+        left: 7px;
+        font-size: 10px;
+    }
+
+    .product-card-body {
+        padding-top: 9px;
+    }
+
+    .product-price {
+        margin-bottom: 5px;
+        font-size: clamp(18px, 5vw, 22px);
     }
 
     .product-card h2 {
-        min-height: 0;
-        font-size: 18px;
+        min-height: 40px;
+        font-size: 15px;
     }
 
-    .detail-button {
-        min-height: 48px;
-        font-size: 15px;
+    .product-status {
+        margin-top: 6px;
+        font-size: 11px;
     }
 
     .modal-panel {
@@ -284,5 +357,24 @@ body {
         transform: none;
         border-radius: 20px 20px 0 0;
         padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
+    }
+}
+
+@media (max-width: 380px) {
+    .customer-main {
+        padding-left: 9px;
+        padding-right: 9px;
+    }
+
+    .product-grid {
+        gap: 18px 8px;
+    }
+
+    .product-price {
+        font-size: 18px;
+    }
+
+    .product-card h2 {
+        font-size: 14px;
     }
 }
