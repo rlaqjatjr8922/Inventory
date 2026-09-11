@@ -202,6 +202,13 @@ async def login(
         )
     )
 
+    auto_login = bool(
+        data.get(
+            "auto_login",
+            False
+        )
+    )
+
     password_hash = hashlib.sha256(
         password.encode("utf-8")
     ).hexdigest()
@@ -217,18 +224,27 @@ async def login(
 
     response = JSONResponse(
         content={
-            "success": True
+            "success": True,
+            "auto_login": auto_login
         }
     )
 
+    cookie_options = {
+        "key": SESSION_COOKIE_NAME,
+        "value": admin_session_token(),
+        "httponly": True,
+        "samesite": "strict",
+        "secure": False,
+        "path": "/"
+    }
+
+    if auto_login:
+        cookie_options["max_age"] = (
+            60 * 60 * 24 * 30
+        )
+
     response.set_cookie(
-        key=SESSION_COOKIE_NAME,
-        value=admin_session_token(),
-        max_age=60 * 60 * 24 * 30,
-        httponly=True,
-        samesite="strict",
-        secure=False,
-        path="/"
+        **cookie_options
     )
 
     return response
