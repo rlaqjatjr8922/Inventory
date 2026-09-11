@@ -1,4 +1,7 @@
 from pathlib import Path
+import hashlib
+import hmac
+import secrets
 import time
 
 from fastapi import (
@@ -8,7 +11,9 @@ from fastapi import (
 )
 
 from fastapi.responses import (
-    FileResponse
+    FileResponse,
+    JSONResponse,
+    RedirectResponse
 )
 
 from fastapi.staticfiles import (
@@ -48,6 +53,30 @@ UPLOAD_DIR.mkdir(
 )
 
 
+ADMIN_PASSWORD_HASH = (
+    "4f74b04572fedf22bf02d789c01410cd"
+    "6d13bfdf78623c521327f91d9d371fd1"
+)
+
+SESSION_COOKIE_NAME = (
+    "inventory_admin_session"
+)
+
+SESSION_SECRET = (
+    secrets.token_bytes(32)
+)
+
+PUBLIC_PATHS = {
+    "/login",
+    "/customer",
+    "/api/login",
+    "/api/customer/parts",
+    "/css/customer.css",
+    "/js/customer.js",
+    "/favicon.ico"
+}
+
+
 app = FastAPI()
 
 
@@ -80,6 +109,146 @@ app.mount(
     ),
     name="uploads"
 )
+
+
+def admin_session_token():
+
+    return hmac.new(
+        SESSION_SECRET,
+        b"inventory-admin",
+        hashlib.sha256
+    ).hexdigest()
+
+
+def is_admin_request(
+    request: Request
+):
+
+    cookie = request.cookies.get(
+        SESSION_COOKIE_NAME,
+        ""
+    )
+
+    if not cookie:
+        return False
+
+    return hmac.compare_digest(
+        cookie,
+        admin_session_token()
+    )
+
+
+@app.middleware("http")
+async def protect_admin(
+    request: Request,
+    call_next
+):
+
+    path = request.url.path
+
+    if (
+        path in PUBLIC_PATHS
+        or path.startswith("/uploads/")
+    ):
+        return await call_next(request)
+
+    if is_admin_request(request):
+        return await call_next(request)
+
+    if path.startswith("/api/"):
+        return JSONResponse(
+            status_code=401,
+            content={
+                "detail": "관리자 로그인이 필요합니다."
+            }
+        )
+
+    return RedirectResponse(
+        url="/login",
+        status_code=303
+    )
+
+
+@app.get("/login")
+def login_page(
+    request: Request
+):
+
+    if is_admin_request(request):
+        return RedirectResponse(
+            url="/",
+            status_code=303
+        )
+
+    return FileResponse(
+        WAP_DIR / "login.htm"
+    )
+
+
+@app.post("/api/login")
+async def login(
+    request: Request
+):
+
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+
+    password = str(
+        data.get(
+            "password",
+            ""
+        )
+    )
+
+    password_hash = hashlib.sha256(
+        password.encode("utf-8")
+    ).hexdigest()
+
+    if not hmac.compare_digest(
+        password_hash,
+        ADMIN_PASSWORD_HASH
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="비밀번호가 올바르지 않습니다."
+        )
+
+    response = JSONResponse(
+        content={
+            "success": True
+        }
+    )
+
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=admin_session_token(),
+        max_age=60 * 60 * 24 * 30,
+        httponly=True,
+        samesite="strict",
+        secure=False,
+        path="/"
+    )
+
+    return response
+
+
+@app.post("/api/logout")
+def logout():
+
+    response = JSONResponse(
+        content={
+            "success": True
+        }
+    )
+
+    response.delete_cookie(
+        key=SESSION_COOKIE_NAME,
+        path="/"
+    )
+
+    return response
 
 
 @app.get("/")
