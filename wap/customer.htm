@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>심심PC 판매 재고</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="/css/customer.css">
+</head>
+<body>
+
+<header class="customer-header">
+    <div>
+        <p class="brand-subtitle">심심PC</p>
+        <h1>판매 재고</h1>
+    </div>
+    <div id="customer-stock-count" class="stock-count">0개</div>
+</header>
+
+<main class="customer-main">
+    <section class="customer-tools">
+        <input
+            id="customer-search"
+            type="search"
+            placeholder="제품명 검색"
+            autocomplete="off"
+        >
+
+        <select id="customer-type-filter">
+            <option value="">전체 종류</option>
+            <option value="1">CPU</option>
+            <option value="2">GPU</option>
+            <option value="3">메인보드</option>
+            <option value="4">RAM</option>
+            <option value="5">SSD</option>
+            <option value="6">HDD</option>
+            <option value="7">파워</option>
+            <option value="8">팬</option>
+            <option value="9">케이스</option>
+            <option value="10">쿨러</option>
+            <option value="11">기타</option>
+        </select>
+    </section>
+
+    <section id="customer-list" class="product-grid"></section>
+
+    <div id="customer-empty" class="empty-state hidden">
+        판매 가능한 제품이 없습니다.
+    </div>
+</main>
+
+<div id="customer-detail-modal" class="modal hidden" aria-hidden="true">
+    <div class="modal-backdrop" data-close-detail></div>
+
+    <section class="modal-panel" role="dialog" aria-modal="true">
+        <div class="modal-header">
+            <div>
+                <p id="detail-type" class="detail-type"></p>
+                <h2 id="detail-name"></h2>
+            </div>
+
+            <button
+                id="detail-close-button"
+                class="close-button"
+                type="button"
+                aria-label="닫기"
+            >
+                ×
+            </button>
+        </div>
+
+        <div class="detail-price-area">
+            <span>판매가</span>
+            <strong id="detail-price">가격문의</strong>
+        </div>
+
+        <div class="detail-info">
+            <div>
+                <span>상태</span>
+                <strong id="detail-status">정상</strong>
+            </div>
+            <div>
+                <span>재고번호</span>
+                <strong id="detail-id">-</strong>
+            </div>
+        </div>
+
+        <p class="detail-note">
+            실제 재고 및 판매 여부는 방문 또는 문의 시점에 달라질 수 있습니다.
+        </p>
+    </section>
+</div>
+
+<script src="/js/customer.js"></script>
+</body>
+</html>
