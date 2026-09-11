@@ -155,6 +155,9 @@ function openCustomerDetail(partId) {
     document.getElementById("detail-id").textContent =
         `#${part.id}`;
 
+    const imageArea = document.getElementById("detail-image-area");
+    imageArea.innerHTML = customerImage(part);
+
     const modal = document.getElementById("customer-detail-modal");
     modal.classList.remove("hidden");
     modal.setAttribute("aria-hidden", "false");
