@@ -6,7 +6,7 @@
     }
 
     body {
-        padding-bottom: 78px;
+        padding-bottom: 150px;
         -webkit-tap-highlight-color: transparent;
     }
 
@@ -90,7 +90,7 @@
     }
 
     .content {
-        padding: 12px;
+        padding: 12px 12px 110px;
     }
 
     .panel {
@@ -439,7 +439,7 @@
     }
 
     .content {
-        padding: 10px;
+        padding: 10px 10px 120px;
     }
 
     .panel {
