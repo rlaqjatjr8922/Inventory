@@ -70,6 +70,14 @@ def main_page():
     )
 
 
+@app.get("/customer")
+def customer_page():
+
+    return FileResponse(
+        WAP_DIR / "customer.htm"
+    )
+
+
 # =========================
 # 부품
 # =========================
@@ -78,6 +86,45 @@ def main_page():
 def get_parts():
 
     return database.load_parts()
+
+
+@app.get("/api/customer/parts")
+def get_customer_parts():
+
+    parts = database.load_parts()
+
+    result = []
+
+    for part in parts:
+
+        if part.get(
+            "판매그룹"
+        ):
+            continue
+
+        if int(
+            part.get(
+                "고장여부",
+                3
+            )
+        ) != 1:
+            continue
+
+        result.append({
+            "id": part.get("id"),
+            "이름": part.get("이름", ""),
+            "종류": part.get("종류"),
+            "상태": "정상",
+            "판매가": int(
+                part.get(
+                    "목표판매가",
+                    0
+                )
+                or 0
+            )
+        })
+
+    return result
 
 
 @app.put("/api/parts/{part_id}")
