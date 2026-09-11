@@ -27,8 +27,8 @@
     </section>
 
     <section class="customer-tools">
-        <input id="customer-search" type="search" placeholder="제품명 검색" autocomplete="off">
-        <select id="customer-type-filter">
+        <input id="customer-search" type="search" aria-label="제품 검색" placeholder="제품명 · 종류 · 재고번호 검색" autocomplete="off">
+        <select id="customer-type-filter" aria-label="종류 필터">
             <option value="">전체 종류</option>
             <option value="1">CPU</option>
             <option value="2">GPU</option>
@@ -45,12 +45,13 @@
     </section>
 
     <section id="customer-list" class="product-grid"></section>
-    <div id="customer-empty" class="empty-state hidden">판매 가능한 제품이 없습니다.</div>
+    <div id="customer-empty" class="empty-state hidden" role="status">판매 가능한 제품이 없습니다.</div>
+    <noscript>재고 검색과 상세 보기를 이용하려면 JavaScript를 켜주세요.</noscript>
 </main>
 
 <div id="customer-detail-modal" class="modal hidden" aria-hidden="true">
     <div class="modal-backdrop" data-close-detail></div>
-    <section class="modal-panel" role="dialog" aria-modal="true">
+    <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="detail-name">
         <button id="detail-close-button" class="close-button detail-close-floating" type="button" aria-label="닫기">×</button>
         <div id="detail-image-area" class="detail-image-area"></div>
 
@@ -62,12 +63,11 @@
         </div>
 
         <div class="detail-price-area">
-            <span>판매가</span>
+            <span>목표판매가</span>
             <strong id="detail-price">가격문의</strong>
         </div>
 
         <div class="detail-info">
-            <div><span>상태</span><strong id="detail-status">정상</strong></div>
             <div><span>재고번호</span><strong id="detail-id">-</strong></div>
         </div>
 
@@ -84,7 +84,7 @@
             <strong>구매·결제 문의</strong>
             <p>
                 안전을 위해 결제 및 거래는 당근에서 진행합니다.<br>
-                구매를 원하시면 전화 또는 문자 남겨주세요.
+                아래 버튼을 눌러 당근 프로필에서 문의해 주세요.
             </p>
             <a class="daangn-button"
                href="https://www.daangn.com/kr/local-profile/%EC%8B%AC%EC%8B%ACpc-awk2fr5ppt88/"

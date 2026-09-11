@@ -1,84 +1,89 @@
-from pathlib import Path
+"""Export a customer-safe snapshot; never imports or starts the admin server."""
+import hashlib
 import json
 import shutil
+import tempfile
+from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
-PARTS_FILE = BASE_DIR / "data" / "parts.json"
-SOURCE_UPLOAD_DIR = BASE_DIR / "data" / "uploads"
-DOCS_DIR = BASE_DIR / "docs"
-DOCS_UPLOAD_DIR = DOCS_DIR / "uploads"
-PUBLIC_DATA_FILE = DOCS_DIR / "products.json"
+PUBLIC_FIELDS = {"이름", "종류", "목표판매가", "이미지", "재고번호"}
 
 
-def load_parts():
-    if not PARTS_FILE.exists():
-        return []
+def public_image(image, source_dir, target_dir):
+    if not isinstance(image, str) or not image.startswith("/uploads/"):
+        return ""
+    name = image[len("/uploads/"):]
+    if not name or "/" in name or "\\" in name or ":" in name:
+        return ""
+    source = source_dir / name
+    if source.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp"}:
+        return ""
+    if source.is_symlink() or not source.is_file():
+        return ""
+    if source.resolve().parent != source_dir.resolve():
+        return ""
+    content = source.read_bytes()
+    filename = hashlib.sha256(content).hexdigest() + source.suffix.lower()
+    (target_dir / filename).write_bytes(content)
+    return "uploads/" + filename
 
-    with PARTS_FILE.open("r", encoding="utf-8") as file:
-        return json.load(file)
 
-
-def safe_int(value, default=0):
-    try:
-        return int(value or 0)
-    except (TypeError, ValueError):
-        return default
-
-
-def publish():
-    parts = load_parts()
-
-    DOCS_DIR.mkdir(parents=True, exist_ok=True)
-
-    if DOCS_UPLOAD_DIR.exists():
-        shutil.rmtree(DOCS_UPLOAD_DIR)
-
-    DOCS_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-
-    public_parts = []
-
-    for part in parts:
-        if part.get("판매그룹"):
-            continue
-
-        if safe_int(part.get("고장여부"), 3) != 1:
-            continue
-
-        image = str(part.get("이미지", "") or "").strip()
-        public_image = ""
-
-        if image.startswith("/uploads/"):
-            filename = Path(image.removeprefix("/uploads/")).name
-            source = SOURCE_UPLOAD_DIR / filename
-
-            if source.exists() and source.is_file():
-                target = DOCS_UPLOAD_DIR / filename
-                shutil.copy2(source, target)
-                public_image = f"uploads/{filename}"
-        elif image.startswith("http://") or image.startswith("https://"):
-            public_image = image
-
-        public_parts.append({
-            "id": part.get("id"),
-            "이름": part.get("이름", ""),
-            "종류": part.get("종류"),
-            "상태": "정상",
-            "판매가": safe_int(part.get("목표판매가"), 0),
-            "이미지": public_image
-        })
-
-    with PUBLIC_DATA_FILE.open("w", encoding="utf-8") as file:
-        json.dump(
-            public_parts,
-            file,
-            ensure_ascii=False,
-            indent=2
-        )
-        file.write("\n")
-
-    print(f"GitHub Pages 공개 재고 {len(public_parts)}개 생성 완료")
-    print(f"파일: {PUBLIC_DATA_FILE}")
-    print("이제 git add / commit / push 하면 고객 사이트에 반영됩니다.")
+def publish(base_dir=BASE_DIR):
+    base_dir = Path(base_dir).resolve()
+    # Missing or corrupt input must not erase the last successful export.
+    parts = json.loads((base_dir / "data/parts.json").read_text(encoding="utf-8-sig"))
+    if not isinstance(parts, list) or any(not isinstance(p, dict) for p in parts):
+        raise ValueError("parts.json must contain a list of product objects")
+    docs = base_dir / "docs"
+    if docs.is_symlink() or docs.resolve() != base_dir / "docs":
+        raise ValueError("docs must be a local directory")
+    docs.mkdir(exist_ok=True)
+    uploads = docs / "uploads"
+    if uploads.is_symlink() or uploads.resolve() != docs / "uploads":
+        raise ValueError("docs/uploads must be a local directory")
+    with tempfile.TemporaryDirectory(prefix="pages-", dir=base_dir) as temporary:
+        staged = Path(temporary)
+        staged_uploads = staged / "uploads"
+        staged_uploads.mkdir()
+        products = []
+        for part in parts:
+            # Fail closed for missing / unknown status and sale fields.
+            if type(part.get("고장여부")) not in (int, str) or part["고장여부"] not in (1, "1"):
+                continue
+            if "판매그룹" not in part or part["판매그룹"] not in ("", None):
+                continue
+            stock_id, kind, name = part.get("id"), part.get("종류"), part.get("이름")
+            if type(stock_id) is not int or stock_id <= 0:
+                raise ValueError("Invalid stock number")
+            if type(kind) is not int or kind not in range(1, 12) or not isinstance(name, str):
+                raise ValueError("Invalid public product name/type")
+            raw_price = part.get("목표판매가")
+            if raw_price in (None, ""):
+                price = 0
+            elif type(raw_price) is int and raw_price >= 0:
+                price = raw_price
+            elif isinstance(raw_price, str) and raw_price.isdecimal():
+                price = int(raw_price)
+            else:
+                raise ValueError("Invalid target sale price")
+            products.append({
+                "이름": name, "종류": kind, "목표판매가": price,
+                "이미지": public_image(part.get("이미지"), base_dir / "data/uploads", staged_uploads),
+                "재고번호": stock_id,
+            })
+        if len({p["재고번호"] for p in products}) != len(products):
+            raise ValueError("Duplicate stock number")
+        staged_json = staged / "products.json"
+        staged_json.write_text(json.dumps(products, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        # All validation and copies succeeded; delete only the checked export folder.
+        if uploads.exists():
+            shutil.rmtree(uploads)
+        shutil.move(str(staged_uploads), str(uploads))
+        staged_json.replace(docs / "products.json")
+    (docs / ".nojekyll").touch()
+    print(f"GitHub Pages 공개 재고 {len(products)}개 생성 완료")
+    print("git add docs → git commit → git push 순서로 게시하세요.")
+    return products
 
 
 if __name__ == "__main__":

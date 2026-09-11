@@ -1,11 +1,101 @@
-const CUSTOMER_PART_TYPES={1:"CPU",2:"GPU",3:"메인보드",4:"RAM",5:"SSD",6:"HDD",7:"파워",8:"팬",9:"케이스",10:"쿨러",11:"기타"};
-let customerParts=[];
-function money(v){const n=Number(v||0);return Number.isFinite(n)&&n>0?n.toLocaleString("ko-KR")+"원":"가격문의"}
-function typeName(v){return CUSTOMER_PART_TYPES[Number(v)]||"기타"}
-function esc(v){return String(v||"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;")}
-function imageHtml(part){const image=String(part["이미지"]||"").trim();if(image){return `<img class="product-image" src="${esc(image)}" alt="${esc(part["이름"]||"제품 이미지")}" loading="lazy">`}return `<div class="product-image-placeholder"><span>${typeName(part["종류"])}</span><small>심심PC</small></div>`}
-function render(){const list=document.getElementById("customer-list"),empty=document.getElementById("customer-empty"),count=document.getElementById("customer-stock-count");const keyword=document.getElementById("customer-search").value.trim().toLowerCase();const type=document.getElementById("customer-type-filter").value;const filtered=customerParts.filter(part=>{if(type&&Number(part["종류"])!==Number(type))return false;if(keyword&&!([part["이름"],typeName(part["종류"])].join(" ").toLowerCase().includes(keyword)))return false;return true});count.textContent=`${filtered.length}개`;list.innerHTML="";if(!filtered.length){empty.classList.remove("hidden");return}empty.classList.add("hidden");for(const part of filtered){const card=document.createElement("article");card.className="product-card";card.tabIndex=0;card.innerHTML=`<div class="product-image-area">${imageHtml(part)}<span class="product-badge">${typeName(part["종류"])}</span></div><div class="product-card-body"><div class="product-price">${money(part["판매가"])}</div><h2>${esc(part["이름"]||"-")}</h2><div class="product-status">정상 · 판매중</div></div>`;card.addEventListener("click",()=>openDetail(Number(part.id)));card.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();openDetail(Number(part.id))}});list.appendChild(card)}}
-function openDetail(id){const part=customerParts.find(p=>Number(p.id)===Number(id));if(!part)return;document.getElementById("detail-type").textContent=typeName(part["종류"]);document.getElementById("detail-name").textContent=part["이름"]||"-";document.getElementById("detail-price").textContent=money(part["판매가"]);document.getElementById("detail-status").textContent=part["상태"]||"정상";document.getElementById("detail-id").textContent=`#${part.id}`;document.getElementById("detail-image-area").innerHTML=imageHtml(part);const modal=document.getElementById("customer-detail-modal");modal.classList.remove("hidden");modal.setAttribute("aria-hidden","false");document.body.style.overflow="hidden"}
-function closeDetail(){const modal=document.getElementById("customer-detail-modal");modal.classList.add("hidden");modal.setAttribute("aria-hidden","true");document.body.style.overflow=""}
-async function load(){try{const response=await fetch("./products.json",{cache:"no-store"});if(!response.ok)throw new Error("판매 재고를 불러오지 못했습니다.");customerParts=await response.json();render()}catch(error){console.error(error);document.getElementById("customer-stock-count").textContent="오류";document.getElementById("customer-empty").textContent="판매 재고를 불러오지 못했습니다.";document.getElementById("customer-empty").classList.remove("hidden")}}
-document.getElementById("customer-search").addEventListener("input",render);document.getElementById("customer-type-filter").addEventListener("change",render);document.getElementById("detail-close-button").addEventListener("click",closeDetail);document.querySelectorAll("[data-close-detail]").forEach(el=>el.addEventListener("click",closeDetail));document.addEventListener("keydown",e=>{if(e.key==="Escape")closeDetail()});load();
+const TYPES = {1:"CPU",2:"GPU",3:"메인보드",4:"RAM",5:"SSD",6:"HDD",7:"파워",8:"팬",9:"케이스",10:"쿨러",11:"기타"};
+const $ = id => document.getElementById(id);
+const modal = $("customer-detail-modal");
+let products = [], previousFocus;
+const money = value => Number(value) > 0 ? Number(value).toLocaleString("ko-KR") + "원" : "가격문의";
+const typeName = value => TYPES[value] || "기타";
+function element(tag, className, text) {
+    const node = document.createElement(tag);
+    node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+}
+function productImage(part) {
+    const placeholder = element("div", "product-image-placeholder");
+    placeholder.append(element("span", "", typeName(part["종류"])), element("small", "", "심심PC"));
+    const path = part["이미지"];
+    if (typeof path !== "string" || !/^uploads\/[a-f0-9]{64}\.(jpg|jpeg|png|webp)$/.test(path)) return placeholder;
+    const img = element("img", "product-image");
+    img.alt = part["이름"];
+    img.loading = "lazy";
+    img.src = path;
+    img.addEventListener("error", () => img.replaceWith(placeholder), {once:true});
+    return img;
+}
+function render() {
+    const keyword = $("customer-search").value.trim().toLowerCase();
+    const kind = $("customer-type-filter").value;
+    const filtered = products.filter(p =>
+        (!kind || String(p["종류"]) === kind) &&
+        [p["이름"], typeName(p["종류"]), p["재고번호"]].join(" ").toLowerCase().includes(keyword));
+    $("customer-stock-count").textContent = filtered.length + "개";
+    $("customer-list").replaceChildren();
+    $("customer-empty").textContent = products.length ? "검색 조건에 맞는 제품이 없습니다." : "현재 판매 가능한 제품이 없습니다.";
+    $("customer-empty").classList.toggle("hidden", filtered.length > 0);
+    for (const part of filtered) {
+        const card = element("button", "product-card");
+        card.type = "button";
+        const picture = element("div", "product-image-area");
+        picture.append(productImage(part), element("span", "product-badge", typeName(part["종류"])));
+        const body = element("div", "product-card-body");
+        body.append(element("div", "product-price", money(part["목표판매가"])),
+            element("h2", "", part["이름"]),
+            element("div", "product-status", "재고번호 #" + part["재고번호"]));
+        card.append(picture, body);
+        card.addEventListener("click", () => openDetail(part));
+        $("customer-list").append(card);
+    }
+}
+function openDetail(part) {
+    previousFocus = document.activeElement;
+    $("detail-type").textContent = typeName(part["종류"]);
+    $("detail-name").textContent = part["이름"];
+    $("detail-price").textContent = money(part["목표판매가"]);
+    $("detail-id").textContent = "#" + part["재고번호"];
+    $("detail-image-area").replaceChildren(productImage(part));
+    modal.classList.remove("hidden");
+    modal.setAttribute("aria-hidden", "false");
+    document.querySelector("main").inert = true;
+    document.querySelector("header").inert = true;
+    document.body.style.overflow = "hidden";
+    $("detail-close-button").focus();
+}
+function closeDetail() {
+    if (modal.classList.contains("hidden")) return;
+    modal.classList.add("hidden");
+    modal.setAttribute("aria-hidden", "true");
+    document.querySelector("main").inert = false;
+    document.querySelector("header").inert = false;
+    document.body.style.overflow = "";
+    previousFocus?.focus();
+}
+async function load() {
+    try {
+        const response = await fetch("./products.json", {cache:"no-store"});
+        if (!response.ok) throw new Error("Inventory unavailable");
+        const data = await response.json();
+        if (!Array.isArray(data)) throw new Error("Invalid inventory");
+        products = data;
+        render();
+    } catch (error) {
+        $("customer-stock-count").textContent = "오류";
+        $("customer-empty").textContent = "재고를 불러오지 못했습니다. 잠시 후 새로고침해 주세요.";
+        $("customer-empty").classList.remove("hidden");
+        $("customer-search").disabled = true;
+        $("customer-type-filter").disabled = true;
+    }
+}
+$("customer-search").addEventListener("input", render);
+$("customer-type-filter").addEventListener("change", render);
+$("detail-close-button").addEventListener("click", closeDetail);
+document.querySelector("[data-close-detail]").addEventListener("click", closeDetail);
+document.addEventListener("keydown", event => {
+    if (modal.classList.contains("hidden")) return;
+    if (event.key === "Escape") closeDetail();
+    if (event.key === "Tab") {
+        const first = $("detail-close-button"), last = modal.querySelector(".daangn-button");
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }
+});
+load();
