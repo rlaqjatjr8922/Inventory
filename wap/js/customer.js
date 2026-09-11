@@ -28,6 +28,28 @@ function customerTypeName(type) {
     return CUSTOMER_PART_TYPES[Number(type)] || "기타";
 }
 
+function customerImage(part) {
+    const image = String(part["이미지"] || "").trim();
+
+    if (image) {
+        return `
+            <img
+                class="product-image"
+                src="${escapeCustomerHtml(image)}"
+                alt="${escapeCustomerHtml(part["이름"] || "제품 이미지")}"
+                loading="lazy"
+            >
+        `;
+    }
+
+    return `
+        <div class="product-image-placeholder">
+            <span>${customerTypeName(part["종류"])}</span>
+            <small>심심PC</small>
+        </div>
+    `;
+}
+
 function renderCustomerParts() {
     const list = document.getElementById("customer-list");
     const empty = document.getElementById("customer-empty");
@@ -73,37 +95,44 @@ function renderCustomerParts() {
     for (const part of filtered) {
         const card = document.createElement("article");
         card.className = "product-card";
+        card.dataset.partId = part.id;
+        card.tabIndex = 0;
 
         card.innerHTML = `
-            <span class="product-badge">
-                ${customerTypeName(part["종류"])}
-            </span>
+            <div class="product-image-area">
+                ${customerImage(part)}
 
-            <h2>${escapeCustomerHtml(part["이름"] || "-")}</h2>
-
-            <div class="product-price">
-                ${customerMoney(part["판매가"])}
+                <span class="product-badge">
+                    ${customerTypeName(part["종류"])}
+                </span>
             </div>
 
-            <button
-                type="button"
-                class="detail-button"
-                data-part-id="${part.id}"
-            >
-                자세히보기
-            </button>
+            <div class="product-card-body">
+                <div class="product-price">
+                    ${customerMoney(part["판매가"])}
+                </div>
+
+                <h2>${escapeCustomerHtml(part["이름"] || "-")}</h2>
+
+                <div class="product-status">
+                    정상 · 판매중
+                </div>
+            </div>
         `;
+
+        card.addEventListener("click", () => {
+            openCustomerDetail(Number(part.id));
+        });
+
+        card.addEventListener("keydown", event => {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                openCustomerDetail(Number(part.id));
+            }
+        });
 
         list.appendChild(card);
     }
-
-    list
-        .querySelectorAll("[data-part-id]")
-        .forEach(button => {
-            button.addEventListener("click", () => {
-                openCustomerDetail(Number(button.dataset.partId));
-            });
-        });
 }
 
 function openCustomerDetail(partId) {
