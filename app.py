@@ -1,4 +1,5 @@
 from pathlib import Path
+import time
 
 from fastapi import (
     FastAPI,
@@ -240,7 +241,7 @@ async def upload_part_image(
                 pass
 
     filename = (
-        f"part_{int(part_id)}{extension}"
+        f"part_{int(part_id)}_{time.time_ns()}{extension}"
     )
 
     file_path = (
