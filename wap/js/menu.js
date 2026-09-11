@@ -81,3 +81,20 @@ menuButtons.forEach(
 
     }
 );
+
+
+/* 상품 사진 편집 기능 */
+
+const imageEditorScript =
+    document.createElement(
+        "script"
+    );
+
+imageEditorScript.src =
+    "/js/image.js";
+
+imageEditorScript.defer = true;
+
+document.body.appendChild(
+    imageEditorScript
+);
