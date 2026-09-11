@@ -48,8 +48,8 @@ function ensurePartImageUi() {
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                width: 100%;
-                min-height: 210px;
+                width: min(100%, 420px);
+                aspect-ratio: 1 / 1;
                 overflow: hidden;
                 border: 1px dashed #cbd5e1;
                 border-radius: 12px;
@@ -61,8 +61,8 @@ function ensurePartImageUi() {
             .part-image-preview img {
                 display: block;
                 width: 100%;
-                max-height: 360px;
-                object-fit: contain;
+                height: 100%;
+                object-fit: cover;
                 background: white;
             }
 
@@ -111,7 +111,7 @@ function ensurePartImageUi() {
 
             @media (max-width: 700px) {
                 .part-image-preview {
-                    min-height: 180px;
+                    width: 100%;
                 }
 
                 .part-image-actions {
@@ -256,6 +256,142 @@ function showPartImage(imageUrl) {
 }
 
 
+function loadImageFromFile(file) {
+
+    return new Promise(
+        (resolve, reject) => {
+
+            const image = new Image();
+            const url = URL.createObjectURL(file);
+
+            image.onload = () => {
+                URL.revokeObjectURL(url);
+                resolve(image);
+            };
+
+            image.onerror = () => {
+                URL.revokeObjectURL(url);
+                reject(
+                    new Error(
+                        "이미지를 불러오지 못했습니다."
+                    )
+                );
+            };
+
+            image.src = url;
+
+        }
+    );
+
+}
+
+
+function canvasToBlob(canvas, type) {
+
+    return new Promise(
+        (resolve, reject) => {
+
+            canvas.toBlob(
+                blob => {
+
+                    if (!blob) {
+                        reject(
+                            new Error(
+                                "이미지 변환에 실패했습니다."
+                            )
+                        );
+                        return;
+                    }
+
+                    resolve(blob);
+
+                },
+                type,
+                0.92
+            );
+
+        }
+    );
+
+}
+
+
+async function cropImageFileToSquare(file) {
+
+    const image =
+        await loadImageFromFile(file);
+
+    const sourceSize = Math.min(
+        image.naturalWidth,
+        image.naturalHeight
+    );
+
+    const sourceX = Math.floor(
+        (image.naturalWidth - sourceSize) / 2
+    );
+
+    const sourceY = Math.floor(
+        (image.naturalHeight - sourceSize) / 2
+    );
+
+    const outputSize = Math.min(
+        1200,
+        sourceSize
+    );
+
+    const canvas =
+        document.createElement("canvas");
+
+    canvas.width = outputSize;
+    canvas.height = outputSize;
+
+    const context =
+        canvas.getContext("2d");
+
+    context.drawImage(
+        image,
+        sourceX,
+        sourceY,
+        sourceSize,
+        sourceSize,
+        0,
+        0,
+        outputSize,
+        outputSize
+    );
+
+    const outputType = [
+        "image/jpeg",
+        "image/png",
+        "image/webp"
+    ].includes(file.type)
+        ? file.type
+        : "image/jpeg";
+
+    const blob =
+        await canvasToBlob(
+            canvas,
+            outputType
+        );
+
+    const extension =
+        outputType === "image/png"
+            ? "png"
+            : outputType === "image/webp"
+                ? "webp"
+                : "jpg";
+
+    return new File(
+        [blob],
+        `product-square.${extension}`,
+        {
+            type: outputType
+        }
+    );
+
+}
+
+
 function loadEditingPartImage() {
 
     ensurePartImageUi();
@@ -293,7 +429,7 @@ function loadEditingPartImage() {
 }
 
 
-function previewSelectedPartImage(event) {
+async function previewSelectedPartImage(event) {
 
     const file =
         event.target.files?.[0];
@@ -334,17 +470,46 @@ function previewSelectedPartImage(event) {
     }
 
 
-    pendingPartImageFile = file;
+    const message =
+        document.getElementById(
+            "part-image-message"
+        );
 
-    showPartImage(
-        URL.createObjectURL(file)
-    );
+    message.textContent =
+        "사진을 정사각형으로 자르는 중...";
 
 
-    document.getElementById(
-        "part-image-message"
-    ).textContent =
-        "사진을 선택했습니다. 사진 저장을 눌러주세요.";
+    try {
+
+        pendingPartImageFile =
+            await cropImageFileToSquare(
+                file
+            );
+
+        const previewUrl =
+            URL.createObjectURL(
+                pendingPartImageFile
+            );
+
+        showPartImage(
+            previewUrl
+        );
+
+        message.textContent =
+            "가운데 기준으로 1:1 정사각형으로 잘랐습니다. 사진 저장을 눌러주세요.";
+
+    }
+    catch (error) {
+
+        console.error(error);
+
+        pendingPartImageFile = null;
+        event.target.value = "";
+
+        message.textContent =
+            "사진을 처리하지 못했습니다.";
+
+    }
 
 }
 
@@ -420,7 +585,7 @@ async function uploadSelectedPartImage() {
         );
 
         message.textContent =
-            "사진 저장 완료";
+            "정사각형 사진 저장 완료";
 
     }
     catch (error) {
