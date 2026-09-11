@@ -121,19 +121,48 @@ function addPricingColumnsToTable() {
         );
 
 
+    if (!headerRow) {
+        return;
+    }
+
+
+    const existingHeaders = Array.from(
+        headerRow.querySelectorAll("th")
+    ).map(th => th.textContent.trim());
+
+
     if (
-        !headerRow
-        || headerRow.dataset.pricingReady === "1"
+        PRICE_FIELD_DEFS.every(
+            def => existingHeaders.includes(def.label)
+        )
     ) {
         return;
     }
 
 
     const buyGroupHeader =
-        headerRow.children[4];
+        Array.from(
+            headerRow.querySelectorAll("th")
+        ).find(
+            th => th.textContent.trim() === "매입그룹"
+        );
+
+
+    if (!buyGroupHeader) {
+        return;
+    }
 
 
     for (const def of PRICE_FIELD_DEFS) {
+
+        if (
+            existingHeaders.includes(
+                def.label
+            )
+        ) {
+            continue;
+        }
+
 
         const th =
             document.createElement(
@@ -150,80 +179,98 @@ function addPricingColumnsToTable() {
 
     }
 
-
-    headerRow.dataset.pricingReady =
-        "1";
-
 }
 
 
 function addPricingCellsToRenderedRows() {
 
-    document
-        .querySelectorAll(
+    const rows =
+        document.querySelectorAll(
             "#parts-table tr"
-        )
-        .forEach(
-            row => {
-
-                if (
-                    row.dataset.pricingReady
-                    === "1"
-                ) {
-                    return;
-                }
-
-
-                const id =
-                    Number(
-                        row.children[0]
-                            ?.textContent
-                            ?.trim()
-                    );
-
-
-                const part =
-                    cachedParts.find(
-                        item =>
-                            Number(item.id)
-                            === id
-                    );
-
-
-                if (!part) {
-                    return;
-                }
-
-
-                const buyGroupCell =
-                    row.children[4];
-
-
-                for (const def of PRICE_FIELD_DEFS) {
-
-                    const td =
-                        document.createElement(
-                            "td"
-                        );
-
-                    td.textContent =
-                        pricingMoney(
-                            part[def.key]
-                        );
-
-                    row.insertBefore(
-                        td,
-                        buyGroupCell
-                    );
-
-                }
-
-
-                row.dataset.pricingReady =
-                    "1";
-
-            }
         );
+
+
+    for (const row of rows) {
+
+        if (
+            row.querySelector(
+                "td[data-price-field]"
+            )
+        ) {
+            continue;
+        }
+
+
+        const id =
+            Number(
+                row.children[0]
+                    ?.textContent
+                    ?.trim()
+            );
+
+
+        const part =
+            cachedParts.find(
+                item =>
+                    Number(item.id)
+                    === id
+            );
+
+
+        if (!part) {
+            continue;
+        }
+
+
+        const cells =
+            Array.from(
+                row.children
+            );
+
+        const buyGroupCell =
+            cells[4];
+
+
+        if (!buyGroupCell) {
+            continue;
+        }
+
+
+        for (const def of PRICE_FIELD_DEFS) {
+
+            const td =
+                document.createElement(
+                    "td"
+                );
+
+            td.dataset.priceField =
+                def.key;
+
+            td.textContent =
+                pricingMoney(
+                    part[def.key]
+                );
+
+            row.insertBefore(
+                td,
+                buyGroupCell
+            );
+
+        }
+
+    }
+
+}
+
+
+function schedulePricingCells() {
+
+    requestAnimationFrame(
+        () => {
+            addPricingColumnsToTable();
+            addPricingCellsToRenderedRows();
+        }
+    );
 
 }
 
@@ -286,26 +333,6 @@ function getPricePayloadFromPartEdit() {
 
 
     return result;
-
-}
-
-
-const originalRenderParts =
-    window.renderParts;
-
-
-if (
-    typeof originalRenderParts
-    === "function"
-) {
-
-    window.renderParts = function () {
-
-        originalRenderParts();
-
-        addPricingCellsToRenderedRows();
-
-    };
 
 }
 
@@ -433,6 +460,8 @@ async function pricingSavePart() {
             "inventory"
         );
 
+        schedulePricingCells();
+
     }
 
     catch (error) {
@@ -443,176 +472,6 @@ async function pricingSavePart() {
             "서버 연결 실패";
 
     }
-
-}
-
-
-/* =========================================================
-   거래 수정 시에는 가격 수정 가능
-========================================================= */
-
-const originalAddTransactionPartRow =
-    window.addTransactionPartRow;
-
-
-if (
-    typeof originalAddTransactionPartRow
-    === "function"
-) {
-
-    window.addTransactionPartRow = function (
-        part = null
-    ) {
-
-        originalAddTransactionPartRow(
-            part
-        );
-
-
-        const list =
-            document.getElementById(
-                "edit-transaction-parts-list"
-            );
-
-        const row =
-            list?.lastElementChild;
-
-
-        if (!row) {
-            return;
-        }
-
-
-        const removeButton =
-            row.querySelector(
-                ".remove-part-button"
-            );
-
-
-        for (const def of PRICE_FIELD_DEFS) {
-
-            const input =
-                document.createElement(
-                    "input"
-                );
-
-            input.className =
-                `edit-price-${def.editId}`;
-
-            input.type = "number";
-            input.min = "0";
-            input.step = "1";
-            input.placeholder =
-                def.label;
-
-            input.value =
-                safePrice(
-                    part?.[def.key]
-                );
-
-
-            row.insertBefore(
-                input,
-                removeButton
-            );
-
-        }
-
-
-        row.style.gridTemplateColumns =
-            "130px 130px minmax(180px,1fr) 120px 120px 110px 80px";
-
-    };
-
-}
-
-
-const originalGetTransactionEditParts =
-    window.getTransactionEditParts;
-
-
-if (
-    typeof originalGetTransactionEditParts
-    === "function"
-) {
-
-    window.getTransactionEditParts = function () {
-
-        const rows =
-            document.querySelectorAll(
-                "#edit-transaction-parts-list .part-input-row"
-            );
-
-        const result = [];
-
-
-        for (const row of rows) {
-
-            const name =
-                row
-                    .querySelector(
-                        ".edit-transaction-part-name"
-                    )
-                    ?.value
-                    .trim();
-
-
-            if (!name) {
-                continue;
-            }
-
-
-            const data = {
-
-                "종류": Number(
-                    row.querySelector(
-                        ".edit-transaction-part-type"
-                    )?.value
-                ),
-
-                "고장여부": Number(
-                    row.querySelector(
-                        ".edit-transaction-part-status"
-                    )?.value
-                ),
-
-                "이름": name
-
-            };
-
-
-            for (const def of PRICE_FIELD_DEFS) {
-
-                data[def.key] =
-                    safePrice(
-                        row.querySelector(
-                            `.edit-price-${def.editId}`
-                        )?.value
-                    );
-
-            }
-
-
-            if (row.dataset.partId) {
-
-                data.id =
-                    Number(
-                        row.dataset.partId
-                    );
-
-            }
-
-
-            result.push(
-                data
-            );
-
-        }
-
-
-        return result;
-
-    };
 
 }
 
@@ -645,25 +504,31 @@ if (savePartButton) {
 }
 
 
-const editAddPartButton =
+/* =========================================================
+   재고 목록이 다시 그려질 때 자동 보정
+========================================================= */
+
+const partsTableBody =
     document.getElementById(
-        "edit-add-part-button"
+        "parts-table"
     );
 
 
-if (editAddPartButton) {
+if (partsTableBody) {
 
-    editAddPartButton.addEventListener(
-        "click",
-        event => {
+    const partsObserver =
+        new MutationObserver(
+            () => {
+                schedulePricingCells();
+            }
+        );
 
-            event.preventDefault();
-            event.stopImmediatePropagation();
 
-            window.addTransactionPartRow();
-
-        },
-        true
+    partsObserver.observe(
+        partsTableBody,
+        {
+            childList: true
+        }
     );
 
 }
@@ -675,4 +540,4 @@ if (editAddPartButton) {
 
 addPricingFieldsToEditPage();
 addPricingColumnsToTable();
-addPricingCellsToRenderedRows();
+schedulePricingCells();
