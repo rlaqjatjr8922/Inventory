@@ -42,7 +42,7 @@
             font-size: 14px;
             font-weight: 700;
         }
-        input {
+        input[type="password"] {
             width: 100%;
             min-height: 50px;
             padding: 12px 14px;
@@ -51,7 +51,66 @@
             font-size: 16px;
             outline: none;
         }
-        input:focus { border-color: #111827; }
+        input[type="password"]:focus { border-color: #111827; }
+        .auto-login-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-top: 14px;
+            padding: 12px 13px;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            background: #f9fafb;
+        }
+        .auto-login-row span {
+            font-size: 14px;
+            font-weight: 700;
+        }
+        .switch {
+            position: relative;
+            width: 52px;
+            height: 30px;
+            flex: 0 0 auto;
+        }
+        .switch input {
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
+        }
+        .slider {
+            position: absolute;
+            inset: 0;
+            border-radius: 999px;
+            background: #d1d5db;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .slider::before {
+            content: "";
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            left: 3px;
+            top: 3px;
+            border-radius: 50%;
+            background: white;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+            transition: 0.2s;
+        }
+        .switch input:checked + .slider {
+            background: #111827;
+        }
+        .switch input:checked + .slider::before {
+            transform: translateX(22px);
+        }
+        .auto-login-state {
+            min-width: 30px;
+            text-align: right;
+            font-size: 12px;
+            font-weight: 800;
+            color: #6b7280;
+        }
         button {
             width: 100%;
             min-height: 50px;
@@ -96,6 +155,18 @@
                 required
                 autofocus
             >
+
+            <div class="auto-login-row">
+                <span>자동 로그인</span>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span id="auto-login-state" class="auto-login-state">OFF</span>
+                    <label class="switch" aria-label="자동 로그인">
+                        <input id="auto-login" type="checkbox">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+
             <button id="login-button" type="submit">로그인</button>
             <p id="login-message" class="message"></p>
         </form>
@@ -108,6 +179,12 @@
         const password = document.getElementById("password");
         const button = document.getElementById("login-button");
         const message = document.getElementById("login-message");
+        const autoLogin = document.getElementById("auto-login");
+        const autoLoginState = document.getElementById("auto-login-state");
+
+        autoLogin.addEventListener("change", () => {
+            autoLoginState.textContent = autoLogin.checked ? "ON" : "OFF";
+        });
 
         form.addEventListener("submit", async event => {
             event.preventDefault();
@@ -119,7 +196,10 @@
                 const response = await fetch("/api/login", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ password: password.value })
+                    body: JSON.stringify({
+                        password: password.value,
+                        auto_login: autoLogin.checked
+                    })
                 });
 
                 const result = await response.json();
