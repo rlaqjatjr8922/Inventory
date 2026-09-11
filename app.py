@@ -2,7 +2,8 @@ from pathlib import Path
 
 from fastapi import (
     FastAPI,
-    HTTPException
+    HTTPException,
+    Request
 )
 
 from fastapi.responses import (
@@ -36,6 +37,15 @@ JS_DIR = (
     WAP_DIR / "js"
 )
 
+UPLOAD_DIR = (
+    BASE_DIR / "data" / "uploads"
+)
+
+UPLOAD_DIR.mkdir(
+    parents=True,
+    exist_ok=True
+)
+
 
 app = FastAPI()
 
@@ -59,6 +69,15 @@ app.mount(
         directory=JS_DIR
     ),
     name="js"
+)
+
+
+app.mount(
+    "/uploads",
+    StaticFiles(
+        directory=UPLOAD_DIR
+    ),
+    name="uploads"
 )
 
 
@@ -121,10 +140,191 @@ def get_customer_parts():
                     0
                 )
                 or 0
+            ),
+            "이미지": part.get(
+                "이미지",
+                ""
             )
         })
 
     return result
+
+
+@app.post("/api/parts/{part_id}/image")
+async def upload_part_image(
+    part_id: int,
+    request: Request
+):
+
+    content_type = (
+        request.headers
+        .get(
+            "content-type",
+            ""
+        )
+        .split(";", 1)[0]
+        .strip()
+        .lower()
+    )
+
+    extension_map = {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp"
+    }
+
+    extension = extension_map.get(
+        content_type
+    )
+
+    if extension is None:
+        raise HTTPException(
+            status_code=400,
+            detail="JPG, PNG, WEBP 이미지만 등록할 수 있습니다."
+        )
+
+    image_data = await request.body()
+
+    if not image_data:
+        raise HTTPException(
+            status_code=400,
+            detail="이미지 파일이 비어 있습니다."
+        )
+
+    if len(image_data) > 10 * 1024 * 1024:
+        raise HTTPException(
+            status_code=400,
+            detail="이미지는 10MB 이하만 등록할 수 있습니다."
+        )
+
+    parts = database.load_parts()
+
+    target = next(
+        (
+            part
+            for part in parts
+            if int(part.get("id"))
+            == int(part_id)
+        ),
+        None
+    )
+
+    if target is None:
+        raise HTTPException(
+            status_code=404,
+            detail="부품을 찾을 수 없습니다."
+        )
+
+    old_image = str(
+        target.get(
+            "이미지",
+            ""
+        )
+        or ""
+    )
+
+    if old_image.startswith(
+        "/uploads/"
+    ):
+        old_path = (
+            UPLOAD_DIR
+            / old_image.removeprefix(
+                "/uploads/"
+            )
+        )
+
+        if old_path.exists():
+            try:
+                old_path.unlink()
+            except OSError:
+                pass
+
+    filename = (
+        f"part_{int(part_id)}{extension}"
+    )
+
+    file_path = (
+        UPLOAD_DIR / filename
+    )
+
+    file_path.write_bytes(
+        image_data
+    )
+
+    image_url = (
+        f"/uploads/{filename}"
+    )
+
+    target["이미지"] = image_url
+
+    database.save_json(
+        database.PARTS_FILE,
+        parts
+    )
+
+    return {
+        "success": True,
+        "image": image_url
+    }
+
+
+@app.delete("/api/parts/{part_id}/image")
+def delete_part_image(
+    part_id: int
+):
+
+    parts = database.load_parts()
+
+    target = next(
+        (
+            part
+            for part in parts
+            if int(part.get("id"))
+            == int(part_id)
+        ),
+        None
+    )
+
+    if target is None:
+        raise HTTPException(
+            status_code=404,
+            detail="부품을 찾을 수 없습니다."
+        )
+
+    old_image = str(
+        target.get(
+            "이미지",
+            ""
+        )
+        or ""
+    )
+
+    if old_image.startswith(
+        "/uploads/"
+    ):
+        old_path = (
+            UPLOAD_DIR
+            / old_image.removeprefix(
+                "/uploads/"
+            )
+        )
+
+        if old_path.exists():
+            try:
+                old_path.unlink()
+            except OSError:
+                pass
+
+    target["이미지"] = ""
+
+    database.save_json(
+        database.PARTS_FILE,
+        parts
+    )
+
+    return {
+        "success": True
+    }
 
 
 @app.put("/api/parts/{part_id}")
