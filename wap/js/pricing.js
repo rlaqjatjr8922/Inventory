@@ -263,12 +263,128 @@ function addPricingCellsToRenderedRows() {
 }
 
 
+/* =========================================================
+   모바일 재고 카드 버튼
+========================================================= */
+
+function addMobileActionsToRows() {
+
+    const rows =
+        document.querySelectorAll(
+            "#parts-table tr"
+        );
+
+
+    for (const row of rows) {
+
+        if (
+            row.querySelector(
+                ".mobile-card-actions"
+            )
+        ) {
+            continue;
+        }
+
+
+        const id = Number(
+            row.children[0]
+                ?.textContent
+                ?.trim()
+        );
+
+
+        if (!id) {
+            continue;
+        }
+
+
+        const actionCell =
+            document.createElement(
+                "td"
+            );
+
+        actionCell.className =
+            "mobile-card-actions";
+
+
+        const detailButton =
+            document.createElement(
+                "button"
+            );
+
+        detailButton.type = "button";
+        detailButton.className =
+            "mobile-detail-button secondary-button";
+        detailButton.textContent =
+            "자세히보기";
+
+
+        const editButton =
+            document.createElement(
+                "button"
+            );
+
+        editButton.type = "button";
+        editButton.className =
+            "mobile-edit-button";
+        editButton.textContent =
+            "수정";
+
+
+        detailButton.addEventListener(
+            "click",
+            () => {
+
+                const expanded =
+                    row.classList.toggle(
+                        "mobile-expanded"
+                    );
+
+                detailButton.textContent =
+                    expanded
+                        ? "접기"
+                        : "자세히보기";
+
+            }
+        );
+
+
+        editButton.addEventListener(
+            "click",
+            () => {
+
+                if (
+                    typeof window.openPartEdit
+                    === "function"
+                ) {
+                    window.openPartEdit(id);
+                }
+
+            }
+        );
+
+
+        actionCell.append(
+            detailButton,
+            editButton
+        );
+
+        row.appendChild(
+            actionCell
+        );
+
+    }
+
+}
+
+
 function schedulePricingCells() {
 
     requestAnimationFrame(
         () => {
             addPricingColumnsToTable();
             addPricingCellsToRenderedRows();
+            addMobileActionsToRows();
         }
     );
 
