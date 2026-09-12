@@ -53,6 +53,7 @@ function openDetail(part) {
     $("detail-price").textContent = money(part["목표판매가"]);
     $("detail-id").textContent = "#" + part["재고번호"];
     $("detail-inquiry-example").textContent = "재고번호 #" + part["재고번호"] + " 보고 왔는데요, 구매할 수 있을까요?";
+    $("copy-inquiry-status").textContent = "";
     $("detail-image-area").replaceChildren(productImage(part));
     modal.classList.remove("hidden");
     modal.setAttribute("aria-hidden", "false");
@@ -69,6 +70,38 @@ function closeDetail() {
     document.querySelector("header").inert = false;
     document.body.style.overflow = "";
     previousFocus?.focus();
+}
+async function copyInquiry() {
+    const text = $("detail-inquiry-example").textContent;
+    const status = $("copy-inquiry-status");
+    status.textContent = "";
+    try {
+        await navigator.clipboard.writeText(text);
+    } catch (error) {
+        const field = document.createElement("textarea");
+        field.value = text;
+        field.readOnly = true;
+        field.style.cssText = "position:fixed;opacity:0;pointer-events:none";
+        modal.append(field);
+        let copied = false;
+        try {
+            field.select();
+            field.setSelectionRange(0, field.value.length);
+            copied = document.execCommand("copy");
+        } catch (fallbackError) {
+            copied = false;
+        } finally {
+            field.remove();
+            $("copy-inquiry-button").focus();
+        }
+        if (!copied) {
+            status.textContent = "복사하지 못했어요. 위 문구를 길게 누르거나 선택해서 복사해 주세요.";
+            return;
+        }
+    }
+    if ($("detail-inquiry-example").textContent === text) {
+        status.textContent = "복사했어요! 당근 채팅에 붙여넣어 주세요.";
+    }
 }
 async function load() {
     try {
@@ -90,6 +123,7 @@ async function load() {
 $("customer-search").addEventListener("input", render);
 $("customer-type-filter").addEventListener("change", render);
 $("detail-close-button").addEventListener("click", closeDetail);
+$("copy-inquiry-button").addEventListener("click", copyInquiry);
 document.querySelector("[data-close-detail]").addEventListener("click", closeDetail);
 document.addEventListener("keydown", event => {
     if (modal.classList.contains("hidden")) return;
