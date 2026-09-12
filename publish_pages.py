@@ -23,6 +23,8 @@ def public_image(image, source_dir, target_dir):
     if source.resolve().parent != source_dir.resolve():
         return ""
     content = source.read_bytes()
+    if not content:
+        return ""
     filename = hashlib.sha256(content).hexdigest() + source.suffix.lower()
     (target_dir / filename).write_bytes(content)
     return "uploads/" + filename
@@ -66,9 +68,12 @@ def publish(base_dir=BASE_DIR):
                 price = int(raw_price)
             else:
                 raise ValueError("Invalid target sale price")
+            image = public_image(part.get("이미지"), base_dir / "data/uploads", staged_uploads)
+            if not image:
+                continue
             products.append({
                 "이름": name, "종류": kind, "목표판매가": price,
-                "이미지": public_image(part.get("이미지"), base_dir / "data/uploads", staged_uploads),
+                "이미지": image,
                 "재고번호": stock_id,
             })
         if len({p["재고번호"] for p in products}) != len(products):

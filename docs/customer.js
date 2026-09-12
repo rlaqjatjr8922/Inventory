@@ -75,7 +75,8 @@ async function load() {
         if (!response.ok) throw new Error("Inventory unavailable");
         const data = await response.json();
         if (!Array.isArray(data)) throw new Error("Invalid inventory");
-        products = data;
+        products = data.filter(part => typeof part["이미지"] === "string" &&
+            /^uploads\/[a-f0-9]{64}\.(jpg|jpeg|png|webp)$/.test(part["이미지"]));
         render();
     } catch (error) {
         $("customer-stock-count").textContent = "오류";

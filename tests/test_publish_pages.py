@@ -14,9 +14,11 @@ class PublishTests(unittest.TestCase):
         (self.root / "docs/uploads").mkdir(parents=True)
         (self.root / "docs/uploads/old.jpg").write_bytes(b"old")
         (self.root / "docs/index.html").write_text("keep")
+        (self.root / "data/uploads/photo.jpg").write_bytes(b"photo")
         self.good = {"id": 1, "이름": "CPU", "종류": 1, "고장여부": 1, "판매그룹": "",
                      "목표판매가": 15000, "매입가": "PRIVATE", "최저판매가": "PRIVATE",
-                     "수리비": "PRIVATE", "매입그룹": "PRIVATE", "메모": "PRIVATE"}
+                     "수리비": "PRIVATE", "매입그룹": "PRIVATE", "메모": "PRIVATE",
+                     "이미지": "/uploads/photo.jpg"}
 
     def write(self, parts):
         (self.root / "data/parts.json").write_text(json.dumps(parts), encoding="utf-8")
@@ -55,7 +57,17 @@ class PublishTests(unittest.TestCase):
                       "/uploads/test.svg", "/uploads/missing.jpg"]:
             with self.subTest(image=image):
                 self.write([dict(self.good, 이미지=image)])
-                self.assertEqual(publish(self.root)[0]["이미지"], "")
+                self.assertEqual(publish(self.root), [])
+
+    def test_missing_photos_are_hidden(self):
+        (self.root / "data/uploads/empty.jpg").touch()
+        missing = dict(self.good, id=2)
+        del missing["이미지"]
+        parts = [self.good, missing]
+        for index, image in enumerate([None, "", "   ", "/uploads/empty.jpg"], 3):
+            parts.append(dict(self.good, id=index, 이미지=image))
+        self.write(parts)
+        self.assertEqual([p["재고번호"] for p in publish(self.root)], [1])
 
     def test_bad_input_preserves_snapshot(self):
         self.write([self.good])
