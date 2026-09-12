@@ -52,7 +52,7 @@ function openDetail(part) {
     $("detail-name").textContent = part["이름"];
     $("detail-price").textContent = money(part["목표판매가"]);
     $("detail-id").textContent = "#" + part["재고번호"];
-    $("detail-inquiry-example").textContent = "재고번호 #" + part["재고번호"] + " 보고 왔는데요, 구매할 수 있을까요?";
+    $("detail-inquiry-example").textContent = "재고번호 " + part["재고번호"] + " 보고 왔는데요, 구매할 수 있을까요?";
     $("copy-inquiry-status").textContent = "";
     $("detail-image-area").replaceChildren(productImage(part));
     modal.classList.remove("hidden");
