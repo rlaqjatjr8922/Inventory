@@ -14,21 +14,61 @@
 첨부 이미지는 `data/memory_uploads/`에 저장됩니다. 모두 `.gitignore`의 `data/`
 범위에 포함되므로 GitHub Pages나 공개 저장소에는 게시되지 않습니다.
 
-향후 ChatGPT 앱 연결에 사용할 관리자 전용 검색 API는 다음과 같습니다.
-
-```text
-POST /api/memory/search
-{"검색어":"GTX960", "상위태그":"글카", "최소우선도":3, "제한":20}
-```
-
-현재는 다른 관리자 API와 동일하게 로그인 세션이 있어야 호출됩니다. 외부 앱에
-연결할 때는 별도 API 키 인증과 HTTPS 주소를 추가해야 합니다.
-
 관리자 서버용 패키지를 처음 설치할 때는 다음 명령을 실행합니다.
 
 ```powershell
 python -m pip install -r requirements.txt
 ```
+
+## ChatGPT Inventory MCP
+
+서버 PC에서 FastAPI를 실행하면 ChatGPT용 Streamable HTTP MCP가 `/mcp/`에
+함께 열립니다. ChatGPT 플러그인에는 서버의 HTTPS 주소 뒤에 `/mcp/`를 붙여
+연결합니다. OpenAPI 방식이 필요한 경우에는 `/gpt/openapi.json`을 가져오면 됩니다.
+두 연결 방식 모두 외부에 공개하는 도구는 정확히 다음 6개입니다.
+
+| 도구 | REST 경로 | 용도 |
+| --- | --- | --- |
+| `search_projects` | `GET /gpt/search` | `category`, `time`, `title`, `status`로 검색 |
+| `get_project` | `GET /gpt/{id}` | 기본 일반보기, 꼭 필요할 때만 `detail=true` |
+| `add_work` | `POST /gpt/{id}/work` | 오늘의 상세 작업 기록 저장 |
+| `update_project` | `PATCH /gpt/{id}` | 제목·상태·우선도·최종결론·상위태그 수정 |
+| `get_image` | `GET /gpt/image/{id}` | 이미지 자체와 image ID 반환 |
+| `take_photo` | `GET /gpt/camera` | 노트북 카메라 촬영 요청 후 이미지와 새 ID 반환 |
+
+프로젝트는 `data/gpt/{프로젝트ID}.json`, GPT 이미지 원본은
+`data/images/{이미지ID}.{확장자}`에 저장됩니다. 최근 이미지 조회 도구와
+`GET /gpt/` 엔드포인트는 만들지 않습니다.
+
+`add_work`는 같은 날짜에 기록이 없을 때만 바로 저장합니다. 이미 오늘 기록이 있으면
+서버가 기존기록과 새기록을 반환하며 파일은 바꾸지 않습니다. GPT가 둘을 빠짐없이
+합친 최종본을 만들어 `overwrite=true`로 다시 호출했을 때만 그 날짜 기록 전체를
+교체합니다. 이미지 참조는 `[[이미지:ID]]` 형식을 사용합니다.
+
+### 다른 PC의 서버와 노트북 카메라 연결
+
+촬영 흐름은 `GPT → 서버 PC → 노트북 카메라 → 서버 PC → GPT`입니다. 서버 PC와
+노트북에 동일한 임의의 긴 토큰을 설정해야 합니다. 서버 PC에서 FastAPI를 실행하는
+PowerShell 창에 먼저 설정합니다.
+
+```powershell
+$env:CAMERA_AGENT_TOKEN = "직접-만든-긴-임의-문자열"
+python -m uvicorn app:app --host 127.0.0.1 --port 8000
+```
+
+카메라 또는 USB 현미경이 연결된 노트북에서는 저장소를 받은 뒤 다음처럼 실행합니다.
+`--server`에는 ChatGPT에서도 접근할 서버 PC의 HTTPS/Cloudflare Tunnel 주소를 넣습니다.
+
+```powershell
+python -m pip install -r requirements-camera-agent.txt
+$env:CAMERA_AGENT_TOKEN = "서버-PC와-같은-문자열"
+python camera_agent.py --server https://서버주소 --camera 0
+```
+
+내장 카메라가 0번이고 USB 현미경이 1번이면 `--camera 1`로 바꿉니다. 에이전트는
+평소에는 촬영하지 않고 요청을 기다리며, `take_photo`가 호출됐을 때만 카메라를 열어
+한 장을 촬영하고 서버에 업로드합니다. 기본 응답 제한은 45초이며 서버 PC에서
+`CAMERA_REQUEST_TIMEOUT` 환경 변수로 5~120초 범위에서 변경할 수 있습니다.
 
 GitHub Settings → Pages → Build and deployment에서
 **Deploy from a branch**, **main**, **/docs**를 선택합니다.

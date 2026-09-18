@@ -1,4 +1,5 @@
 from pathlib import Path
+from contextlib import asynccontextmanager
 import hashlib
 import hmac
 import secrets
@@ -25,6 +26,7 @@ import database
 import memory_store
 import pricing_backend
 import gpt_api
+import gpt_mcp
 
 
 BASE_DIR = (
@@ -80,13 +82,27 @@ PUBLIC_PATHS = {
 }
 
 
-app = FastAPI()
+@asynccontextmanager
+async def app_lifespan(_app):
+
+    async with gpt_mcp.inventory_mcp.session_manager.run():
+        yield
+
+
+app = FastAPI(
+    lifespan=app_lifespan
+)
 
 
 database.initialize()
 memory_store.initialize()
 pricing_backend.install(database)
 app.include_router(gpt_api.router)
+app.mount(
+    "/mcp",
+    gpt_mcp.mcp_http_app,
+    name="inventory_mcp"
+)
 
 
 app.mount(
@@ -155,6 +171,8 @@ async def protect_admin(
         path in PUBLIC_PATHS
         or path.startswith("/uploads/")
         or path.startswith("/gpt/")
+        or path == "/mcp"
+        or path.startswith("/mcp/")
     ):
         return await call_next(request)
 
