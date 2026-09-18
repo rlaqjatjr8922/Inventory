@@ -5,6 +5,31 @@
 
 고객 사이트: https://rlaqjatjr8922.github.io/Inventory/
 
+관리자 화면의 **메모리** 메뉴에서는 고객·글카·친구·배송·기타 상위태그로
+작업 기록을 저장하고 검색할 수 있습니다. 상위태그는 직접 추가할 수 있으며,
+날짜별 요약·세부내용·결과와 최종결론, 우선도, 상태를 기록합니다. 메모 이미지는
+본문에서 `[[이미지:번호]]` 형식으로 참조합니다.
+
+메모 원본은 `data/memories.json`, 상위태그는 `data/memory_categories.json`,
+첨부 이미지는 `data/memory_uploads/`에 저장됩니다. 모두 `.gitignore`의 `data/`
+범위에 포함되므로 GitHub Pages나 공개 저장소에는 게시되지 않습니다.
+
+향후 ChatGPT 앱 연결에 사용할 관리자 전용 검색 API는 다음과 같습니다.
+
+```text
+POST /api/memory/search
+{"검색어":"GTX960", "상위태그":"글카", "최소우선도":3, "제한":20}
+```
+
+현재는 다른 관리자 API와 동일하게 로그인 세션이 있어야 호출됩니다. 외부 앱에
+연결할 때는 별도 API 키 인증과 HTTPS 주소를 추가해야 합니다.
+
+관리자 서버용 패키지를 처음 설치할 때는 다음 명령을 실행합니다.
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
 GitHub Settings → Pages → Build and deployment에서
 **Deploy from a branch**, **main**, **/docs**를 선택합니다.
 고객 사이트는 GitHub가 정적 파일을 제공하므로 PC와 FastAPI가 꺼져 있어도 접속됩니다.

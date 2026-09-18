@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import secrets
 import time
+from urllib.parse import unquote
 
 from fastapi import (
     FastAPI,
@@ -21,6 +22,7 @@ from fastapi.staticfiles import (
 )
 
 import database
+import memory_store
 import pricing_backend
 
 
@@ -81,6 +83,7 @@ app = FastAPI()
 
 
 database.initialize()
+memory_store.initialize()
 pricing_backend.install(database)
 
 
@@ -644,6 +647,241 @@ def delete_transaction(
 
         raise HTTPException(
             status_code=400,
+            detail=str(error)
+        )
+
+
+# =========================
+# 메모리
+# =========================
+
+@app.get("/api/memory/categories")
+def get_memory_categories():
+
+    return memory_store.load_categories()
+
+
+@app.post("/api/memory/categories")
+def add_memory_category(data: dict):
+
+    try:
+        return memory_store.add_category(
+            data.get("이름")
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error)
+        )
+
+
+@app.get("/api/memories")
+def get_memories(
+    검색어: str = "",
+    상위태그: str = "",
+    상태: str = "",
+    최소우선도: int = 0,
+    제한: int = 100
+):
+
+    try:
+        return memory_store.search_memories(
+            query=검색어,
+            category=상위태그,
+            status=상태,
+            minimum_priority=최소우선도,
+            limit=제한
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error)
+        )
+
+
+@app.post("/api/memory/search")
+def search_memory(data: dict):
+    """ChatGPT 앱 연결 시 그대로 사용할 검색 엔드포인트."""
+
+    try:
+        return {
+            "검색결과": memory_store.search_memories(
+                query=data.get("검색어", data.get("query", "")),
+                category=data.get("상위태그", ""),
+                status=data.get("상태", ""),
+                minimum_priority=data.get("최소우선도", 0),
+                limit=data.get("제한", data.get("limit", 20))
+            )
+        }
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error)
+        )
+
+
+@app.get("/api/memories/{memory_key}")
+def get_memory(memory_key: str):
+
+    try:
+        return memory_store.get_memory(memory_key)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=404,
+            detail=str(error)
+        )
+
+
+@app.post("/api/memories")
+def create_memory(data: dict):
+
+    try:
+        return memory_store.create_memory(data)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error)
+        )
+
+
+@app.put("/api/memories/{memory_key}")
+def update_memory(memory_key: str, data: dict):
+
+    try:
+        return memory_store.update_memory(
+            memory_key,
+            data
+        )
+    except ValueError as error:
+        status_code = (
+            404
+            if "찾을 수 없습니다" in str(error)
+            else 400
+        )
+        raise HTTPException(
+            status_code=status_code,
+            detail=str(error)
+        )
+
+
+@app.delete("/api/memories/{memory_key}")
+def delete_memory(memory_key: str):
+
+    try:
+        deleted = memory_store.delete_memory(
+            memory_key
+        )
+        return {
+            "success": True,
+            "deleted": deleted
+        }
+    except ValueError as error:
+        raise HTTPException(
+            status_code=404,
+            detail=str(error)
+        )
+
+
+@app.post("/api/memories/{memory_key}/attachments")
+async def upload_memory_attachment(
+    memory_key: str,
+    request: Request
+):
+
+    content_type = (
+        request.headers
+        .get("content-type", "")
+        .split(";", 1)[0]
+        .strip()
+        .lower()
+    )
+
+    extension_map = {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp"
+    }
+
+    extension = extension_map.get(content_type)
+    if extension is None:
+        raise HTTPException(
+            status_code=400,
+            detail="JPG, PNG, WEBP 이미지만 등록할 수 있습니다."
+        )
+
+    file_data = await request.body()
+    if not file_data:
+        raise HTTPException(
+            status_code=400,
+            detail="이미지 파일이 비어 있습니다."
+        )
+
+    if len(file_data) > 10 * 1024 * 1024:
+        raise HTTPException(
+            status_code=400,
+            detail="이미지는 10MB 이하만 등록할 수 있습니다."
+        )
+
+    try:
+        return memory_store.add_attachment(
+            memory_key=memory_key,
+            file_data=file_data,
+            content_type=content_type,
+            extension=extension,
+            original_name=unquote(
+                request.headers.get("x-file-name", "")
+            ),
+            description=unquote(
+                request.headers.get("x-file-description", "")
+            )
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status_code=404,
+            detail=str(error)
+        )
+
+
+@app.get("/api/memories/{memory_key}/attachments/{attachment_id}")
+def get_memory_attachment(
+    memory_key: str,
+    attachment_id: int
+):
+
+    try:
+        path, attachment = memory_store.get_attachment_path(
+            memory_key,
+            attachment_id
+        )
+        return FileResponse(
+            path,
+            media_type=attachment.get("콘텐츠형식")
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status_code=404,
+            detail=str(error)
+        )
+
+
+@app.delete("/api/memories/{memory_key}/attachments/{attachment_id}")
+def delete_memory_attachment(
+    memory_key: str,
+    attachment_id: int
+):
+
+    try:
+        deleted = memory_store.delete_attachment(
+            memory_key,
+            attachment_id
+        )
+        return {
+            "success": True,
+            "deleted": deleted
+        }
+    except ValueError as error:
+        raise HTTPException(
+            status_code=404,
             detail=str(error)
         )
 

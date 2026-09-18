@@ -197,7 +197,8 @@ button:hover {
 }
 
 .form-group input,
-.form-group select {
+.form-group select,
+.form-group textarea {
     width: 100%;
     padding: 11px 12px;
     border: 1px solid #ccc;
@@ -207,8 +208,215 @@ button:hover {
 }
 
 .form-group input:focus,
-.form-group select:focus {
+.form-group select:focus,
+.form-group textarea:focus {
     border-color: #111827;
+}
+
+.form-group textarea {
+    resize: vertical;
+    font-family: inherit;
+}
+
+/* =========================
+   메모리
+========================= */
+.memory-layout {
+    display: grid;
+    grid-template-columns: minmax(280px, 0.75fr) minmax(480px, 1.5fr);
+    gap: 20px;
+    align-items: start;
+}
+
+.memory-list-panel {
+    position: sticky;
+    top: 20px;
+    max-height: calc(100vh - 40px);
+    overflow: auto;
+}
+
+.memory-heading,
+.memory-section-heading,
+.memory-work-header,
+.memory-list-top,
+.memory-list-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.memory-heading h2,
+.memory-section-heading h3 {
+    margin: 0;
+}
+
+.memory-heading {
+    margin-bottom: 18px;
+}
+
+.memory-section-heading {
+    margin: 22px 0 10px;
+}
+
+.memory-section-heading h3 {
+    font-size: 16px;
+}
+
+.memory-search-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.memory-search-grid input,
+.memory-search-grid select,
+.memory-upload-row input,
+.memory-category-row select,
+.memory-work-card input,
+.memory-work-card textarea {
+    width: 100%;
+    min-width: 0;
+    padding: 10px 11px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: white;
+    font: inherit;
+}
+
+.memory-search-grid input {
+    grid-column: 1 / -1;
+}
+
+.memory-list {
+    display: grid;
+    gap: 9px;
+}
+
+.memory-list-card {
+    display: grid;
+    gap: 7px;
+    width: 100%;
+    padding: 13px;
+    border: 1px solid #e5e7eb;
+    background: white;
+    color: #222;
+    text-align: left;
+}
+
+.memory-list-card:hover,
+.memory-list-card.active {
+    border-color: #4b5563;
+    background: #f3f4f6;
+}
+
+.memory-list-top span,
+.memory-list-bottom,
+.memory-help,
+.memory-meta {
+    color: #6b7280;
+    font-size: 12px;
+}
+
+.memory-list-title {
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.memory-empty {
+    padding: 20px 0;
+    color: #6b7280;
+    text-align: center;
+}
+
+.memory-basic-grid {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 0 12px;
+}
+
+.memory-category-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 7px;
+}
+
+.memory-work-list {
+    display: grid;
+    gap: 12px;
+}
+
+.memory-work-card {
+    display: grid;
+    gap: 9px;
+    padding: 13px;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    background: #f9fafb;
+}
+
+.memory-work-header input {
+    max-width: 180px;
+}
+
+.memory-work-card textarea {
+    resize: vertical;
+}
+
+.memory-upload-row {
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto;
+    gap: 8px;
+}
+
+.memory-attachment-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.memory-attachment-card {
+    display: grid;
+    grid-template-columns: 100px 1fr;
+    gap: 10px;
+    overflow: hidden;
+    padding: 9px;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+}
+
+.memory-attachment-card img {
+    width: 100px;
+    height: 100px;
+    border-radius: 7px;
+    background: #f3f4f6;
+    object-fit: cover;
+}
+
+.memory-attachment-info {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    min-width: 0;
+}
+
+.memory-attachment-info span {
+    overflow: hidden;
+    color: #4b5563;
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.memory-attachment-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.memory-meta {
+    margin-top: 14px;
 }
 
 .price-text {
@@ -432,6 +640,15 @@ tbody tr:hover {
     .part-input-row {
         grid-template-columns: 1fr 1fr;
     }
+
+    .memory-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .memory-list-panel {
+        position: static;
+        max-height: none;
+    }
 }
 
 @media (max-width: 700px) {
@@ -474,6 +691,21 @@ tbody tr:hover {
 
     .readonly-info {
         grid-template-columns: 1fr;
+    }
+
+    .memory-basic-grid,
+    .memory-upload-row,
+    .memory-attachment-list {
+        grid-template-columns: 1fr;
+    }
+
+    .memory-attachment-card {
+        grid-template-columns: 86px 1fr;
+    }
+
+    .memory-attachment-card img {
+        width: 86px;
+        height: 86px;
     }
 }
 
