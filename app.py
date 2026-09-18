@@ -24,6 +24,7 @@ from fastapi.staticfiles import (
 import database
 import memory_store
 import pricing_backend
+import gpt_api
 
 
 BASE_DIR = (
@@ -85,6 +86,7 @@ app = FastAPI()
 database.initialize()
 memory_store.initialize()
 pricing_backend.install(database)
+app.include_router(gpt_api.router)
 
 
 app.mount(
@@ -152,6 +154,7 @@ async def protect_admin(
     if (
         path in PUBLIC_PATHS
         or path.startswith("/uploads/")
+        or path.startswith("/gpt/")
     ):
         return await call_next(request)
 
