@@ -36,6 +36,14 @@ python -m pip install -r requirements.txt
 | `get_image` | `GET /gpt/image/{id}` | 이미지 자체와 image ID 반환 |
 | `take_photo` | `GET /gpt/camera` | 노트북 카메라 촬영 요청 후 이미지와 새 ID 반환 |
 
+MCP 연결에서는 `get_image`와 `take_photo`가 `image_id` 텍스트와 네이티브
+`type=image` 콘텐츠를 함께 반환합니다. HTTP 응답에는 `image_id`, `content`,
+`content_items`가 포함되며 이미지 블록은 실제 형식에 맞는 `image/jpeg` 또는
+`image/png` MIME 타입과 접두사 없는 순수 base64 데이터를 사용합니다.
+두 도구는 공통 이미지 함수를 사용하고, 원본 파일은 유지한 채 응답 이미지의 긴 변을
+최대 1600픽셀로 제한합니다. JPEG 품질은 85입니다.
+이미지 ID는 대화에서 계속 `[[이미지:ID]]`로 참조할 수 있습니다.
+
 프로젝트는 `data/gpt/{프로젝트ID}.json`, GPT 이미지 원본은
 `data/images/{이미지ID}.{확장자}`에 저장됩니다. 최근 이미지 조회 도구와
 `GET /gpt/` 엔드포인트는 만들지 않습니다.
