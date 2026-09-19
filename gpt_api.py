@@ -16,7 +16,9 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import JSONResponse, Response
+from PIL import UnidentifiedImageError
+from image_content import image_response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -565,18 +567,11 @@ def take_photo_data() -> tuple[int, Path]:
     return camera_request.image_id, camera_request.image_path
 
 
-def _image_response(image_id: int, path: Path) -> FileResponse:
-    media_type = IMAGE_TYPES.get(path.suffix.lower(), "application/octet-stream")
-    return FileResponse(
-        path,
-        media_type=media_type,
-        filename=f"image-{image_id}{path.suffix.lower()}",
-        content_disposition_type="inline",
-        headers={
-            "X-Image-ID": str(image_id),
-            "Access-Control-Expose-Headers": "X-Image-ID",
-        },
-    )
+def _image_response(image_id: int, path: Path) -> dict:
+    try:
+        return image_response(image_id, path)
+    except (OSError, UnidentifiedImageError, ValueError) as error:
+        raise GPTAPIError(422, "이미지 파일을 읽거나 변환할 수 없습니다.") from error
 
 
 def _http_error(error: GPTAPIError) -> HTTPException:
@@ -621,20 +616,7 @@ def search_projects(
     "/image/{image_id}",
     operation_id="get_image",
     summary="저장된 이미지 가져오기",
-    description=(
-        "저장된 이미지 자체를 반환합니다. 응답의 X-Image-ID 헤더와 파일명에도 같은 image ID가 포함됩니다."
-    ),
-    responses={
-        200: {
-            "content": {"image/jpeg": {}, "image/png": {}, "image/webp": {}},
-            "headers": {
-                "X-Image-ID": {
-                    "description": "반환된 이미지의 image ID",
-                    "schema": {"type": "string"},
-                }
-            },
-        }
-    },
+    description="image_id와 실제 이미지 블록을 content_items로 함께 반환합니다.",
 )
 def get_image(image_id: int):
     try:
@@ -648,21 +630,7 @@ def get_image(image_id: int):
     "/camera",
     operation_id="take_photo",
     summary="카메라 또는 현미경으로 촬영",
-    description=(
-        "노트북 카메라 에이전트에 촬영을 요청해 서버에 저장하고 이미지 자체를 반환합니다. "
-        "응답의 X-Image-ID 헤더와 파일명에 새 image ID가 포함됩니다."
-    ),
-    responses={
-        200: {
-            "content": {"image/jpeg": {}},
-            "headers": {
-                "X-Image-ID": {
-                    "description": "새로 저장된 이미지의 image ID",
-                    "schema": {"type": "string"},
-                }
-            },
-        }
-    },
+    description="노트북 카메라로 촬영하고 새 image_id와 실제 이미지 블록을 content_items로 반환합니다.",
 )
 def take_photo():
     try:

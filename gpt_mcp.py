@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Callable, TypeVar
 
-from mcp.server.mcpserver import Image, MCPServer
+from mcp.server.mcpserver import MCPServer
+from mcp.types import ImageContent, TextContent
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import Field
 
@@ -142,7 +143,7 @@ def get_image(
     """저장된 이미지 자체와 그 image ID를 함께 반환합니다."""
 
     path = _run(lambda: gpt_api.get_image_path(image_id))
-    return [f"image_id: {image_id}", Image(path=path)]
+    return _image_content(image_id, path)
 
 
 @inventory_mcp.tool(name="take_photo", structured_output=False)
@@ -150,7 +151,16 @@ def take_photo() -> list[Any]:
     """노트북 카메라 에이전트로 촬영하고 이미지 자체와 새 image ID를 함께 반환합니다."""
 
     image_id, path = _run(gpt_api.take_photo_data)
-    return [f"image_id: {image_id}", Image(path=path)]
+    return _image_content(image_id, path)
+
+
+def _image_content(image_id, path) -> list[Any]:
+    response = _run(lambda: gpt_api._image_response(image_id, path))
+    # Return native MCP blocks, never a JSON string containing base64.
+    return [
+        TextContent(**response["content_items"][0]),
+        ImageContent(**response["content_items"][1]),
+    ]
 
 
 mcp_http_app = inventory_mcp.streamable_http_app(

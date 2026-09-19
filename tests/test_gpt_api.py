@@ -1,4 +1,7 @@
 import asyncio
+import base64
+from io import BytesIO
+from PIL import Image
 import json
 import os
 import tempfile
@@ -174,15 +177,41 @@ class GPTAPITests(unittest.TestCase):
         self.assertEqual(stored["우선도"], 4)
         self.assertEqual(stored["최종결론"], "PK616BA 교체 후 정상")
 
-    def test_get_image_response_contains_binary_and_id_metadata(self):
-        image_path = self.image_dir / "41.jpg"
-        image_path.write_bytes(b"jpeg-data")
-
+    def test_get_image_response_contains_image_blocks_and_id(self):
+        path = self.image_dir / "41.jpg"
+        Image.new("RGB", (2400, 1200), "red").save(path)
+        original = path.read_bytes()
         response = gpt_api.get_image(41)
+        self.assertEqual(response["image_id"], 41)
+        self.assertEqual(response["content"], "image_id: 41")
+        block = response["content_items"][1]
+        self.assertEqual(block["type"], "image")
+        self.assertEqual(block["mimeType"], "image/jpeg")
+        decoded = base64.b64decode(block["data"], validate=True)
+        with Image.open(BytesIO(decoded)) as picture:
+            self.assertEqual(picture.size, (1600, 800))
+            self.assertEqual(picture.format, "JPEG")
+        self.assertEqual(path.read_bytes(), original)
 
-        self.assertEqual(Path(response.path), image_path)
-        self.assertEqual(response.headers["x-image-id"], "41")
-        self.assertIn("image-41.jpg", response.headers["content-disposition"])
+    def test_png_content_detected_from_bytes_and_camera_matches_get_image(self):
+        path = self.image_dir / "42.jpg"
+        Image.new("RGBA", (16, 12), (1, 2, 3, 100)).save(path, format="PNG")
+        with patch.object(gpt_api, "take_photo_data", return_value=(42, path)):
+            response = gpt_api.take_photo()
+            result = asyncio.run(gpt_mcp.inventory_mcp.call_tool("take_photo", {}))
+        self.assertEqual(response, gpt_api.get_image(42))
+        block = response["content_items"][1]
+        self.assertEqual(block["mimeType"], "image/png")
+        self.assertEqual(result.content[1].type, "image")
+        self.assertEqual(result.content[1].data, block["data"])
+        with Image.open(BytesIO(base64.b64decode(block["data"], validate=True))) as picture:
+            self.assertEqual(picture.format, "PNG")
+            self.assertEqual(picture.mode, "RGBA")
+
+    def test_invalid_image_is_reported_as_tool_error(self):
+        (self.image_dir / "43.jpg").write_bytes(b"invalid")
+        with self.assertRaises(gpt_mcp.ToolError):
+            asyncio.run(gpt_mcp.inventory_mcp.call_tool("get_image", {"image_id": 43}))
 
     def test_take_photo_relays_to_laptop_agent_and_saves_next_image_id(self):
         (self.image_dir / "8.png").write_bytes(b"old")
@@ -231,7 +260,7 @@ class GPTAPITests(unittest.TestCase):
         self.assertNotIn("/gpt/latest-image", schema["paths"])
 
     def test_mcp_exposes_exactly_six_tools_and_image_with_id(self):
-        (self.image_dir / "55.webp").write_bytes(b"webp-data")
+        Image.new("RGB", (24, 16), "blue").save(self.image_dir / "55.webp")
 
         tools = asyncio.run(gpt_mcp.inventory_mcp.list_tools())
         names = {tool.name for tool in tools}
@@ -244,7 +273,7 @@ class GPTAPITests(unittest.TestCase):
         self.assertEqual(result.content[0].type, "text")
         self.assertIn("55", result.content[0].text)
         self.assertEqual(result.content[1].type, "image")
-        self.assertEqual(result.content[1].mime_type, "image/webp")
+        self.assertEqual(result.content[1].mime_type, "image/jpeg")
         self.assertTrue(result.content[1].data)
 
 
