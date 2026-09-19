@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ko">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{margin:0;font:14px system-ui,sans-serif;color:light-dark(#202124,#eee);color-scheme:light dark}
+main{padding:16px}img{display:block;max-width:100%;max-height:480px;margin:12px auto;object-fit:contain;border-radius:8px}
+button{padding:10px 16px;border:0;border-radius:8px;background:#176b52;color:#fff;cursor:pointer}button:disabled{opacity:.5;cursor:default}
+p{line-height:1.5}#label{font-weight:600}
+</style></head>
+<body><main><div id="label">사진 불러오는 중</div><img id="photo" hidden alt="Inventory 사진">
+<p id="status" role="status">사진을 기다리고 있습니다.</p>
+<button id="analyze" disabled>이 사진 분석하기</button></main>
+<script>
+(() => {
+  const label = document.getElementById('label');
+  const photo = document.getElementById('photo');
+  const status = document.getElementById('status');
+  const button = document.getElementById('analyze');
+  let current = null, busy = false, requestId = 0;
+  const pending = new Map();
+  function rpc(method, params) {
+    const id = ++requestId;
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => { pending.delete(id); reject(new Error('호스트 응답 시간 초과')); }, 15000);
+      pending.set(id, {resolve, reject, timeout});
+      window.parent.postMessage({jsonrpc:'2.0', id, method, params}, '*');
+    });
+  }
+  function render(result) {
+    if (!result) return;
+    const output = result.structuredContent || result.structured_content || {};
+    const block = result._meta?.['inventory/image'] || result.meta?.['inventory/image'] || result.content?.find(x => x.type === 'image');
+    if (!Number.isSafeInteger(output.image_id) || !block?.data || !['image/jpeg','image/png'].includes(block.mimeType)) return;
+    if (current?.id === output.image_id) return;
+    current = {id:output.image_id, block};
+    label.textContent = 'image_id: ' + current.id;
+    photo.src = 'data:' + block.mimeType + ';base64,' + block.data;
+    photo.hidden = false;
+    photo.alt = 'Inventory 이미지 ' + current.id;
+    status.textContent = '분석하기를 누르면 이 사진을 ChatGPT에 이미지로 전달합니다.';
+    button.disabled = false;
+  }
+  function readGlobals() {
+    const api = window.openai;
+    const metadata = api?.toolResponseMetadata;
+    render(metadata?.mcp_tool_result || metadata?.call_tool_result);
+    if (!current && api?.toolOutput) render({structuredContent:api.toolOutput, _meta:metadata});
+  }
+  window.addEventListener('message', event => {
+    if (event.source !== window.parent || event.data?.jsonrpc !== '2.0') return;
+    const message = event.data;
+    if (pending.has(message.id)) {
+      const task = pending.get(message.id);
+      pending.delete(message.id); clearTimeout(task.timeout);
+      message.error ? task.reject(new Error(message.error.message)) : task.resolve(message.result);
+    }
+    if (message.method === 'ui/notifications/tool-result') render(message.params);
+  });
+  window.addEventListener('openai:set_globals', readGlobals);
+  button.addEventListener('click', async () => {
+    if (!current || busy) return;
+    busy = true; button.disabled = true;
+    const selected = current;
+    try {
+      const api = window.openai;
+      if (!api?.uploadFile || !api?.setWidgetState || !api?.sendFollowUpMessage) {
+        throw new Error('이 환경은 사진 전달 기능을 지원하지 않습니다. 사진을 대화에 직접 첨부해 주세요.');
+      }
+      status.textContent = 'ChatGPT에 사진 전달 중…';
+      const previous = api.widgetState;
+      let fileId = previous?.privateContent?.imageId === selected.id ? previous.imageIds?.[0] : null;
+      if (!fileId) {
+        const bytes = Uint8Array.from(atob(selected.block.data), c => c.charCodeAt(0));
+        const extension = selected.block.mimeType === 'image/png' ? 'png' : 'jpg';
+        const file = new File([bytes], 'inventory-' + selected.id + '.' + extension, {type:selected.block.mimeType});
+        ({fileId} = await api.uploadFile(file));
+      }
+      if (!fileId) throw new Error('사진 파일 ID를 받지 못했습니다. 다시 시도해 주세요.');
+      api.setWidgetState({
+        modelContent: 'Inventory image_id: ' + selected.id + '. 첨부된 사진을 직접 보고 설명하세요.',
+        privateContent: {imageId:selected.id}, imageIds:[fileId]
+      });
+      await api.sendFollowUpMessage({prompt:'Inventory image_id ' + selected.id + '의 첨부 사진을 직접 보고 설명해 주세요. 새로 촬영하거나 기록을 수정하지 마세요.'});
+      status.textContent = '사진을 전달했습니다.';
+    } catch (error) {
+      status.textContent = error.message || '사진 전달에 실패했습니다. 다시 시도해 주세요.';
+    } finally {busy = false; button.disabled = false;}
+  });
+  readGlobals();
+  rpc('ui/initialize', {appInfo:{name:'Inventory image input',version:'2.0.0'},appCapabilities:{},protocolVersion:'2026-01-26'})
+    .then(() => window.parent.postMessage({jsonrpc:'2.0',method:'ui/notifications/initialized',params:{}}, '*'))
+    .catch(() => readGlobals());
+})();
+</script></body></html>

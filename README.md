@@ -44,6 +44,27 @@ MCP 연결에서는 `get_image`와 `take_photo`가 `image_id` 텍스트와 네�
 최대 1600픽셀로 제한합니다. JPEG 품질은 85입니다.
 이미지 ID는 대화에서 계속 `[[이미지:ID]]`로 참조할 수 있습니다.
 
+### ChatGPT에서 사진 분석
+
+ChatGPT의 일부 연결 경로에서는 네이티브 MCP 이미지 블록이 모델의 시각 입력으로
+전달되지 않습니다. 사진 표시와 모델의 사진 인식은 별도로 검증해야 합니다.
+`get_image`와 `take_photo`는 같은 사진 카드도 반환합니다. 카드에서 **이 사진 분석하기**를
+누르면 `window.openai.uploadFile`로 사진을 ChatGPT 파일로 등록하고,
+`setWidgetState`의 `imageIds`에 실제 파일 ID를 연결한 뒤 분석 요청을 보냅니다.
+이 경로에서는 버튼을 한 번 눌러야 합니다. Inventory 숫자 ID와 ChatGPT 파일 ID는
+서로 다른 식별자이며, 사진을 외부 공개 URL로 게시하지 않습니다.
+
+서버 업데이트 후 ChatGPT의 Inventory 플러그인 관리 화면에서 **새로 고침**을 누르고
+새 대화에서 테스트합니다. 출력 템플릿은 `ui://simsimpc-inventory/image-input-v2.html`입니다.
+2026-09-19 실제 ChatGPT 대화에서 이미지 9의 일반 도구 반환은 인식에 실패했지만,
+카드의 분석 버튼을 누른 후에는 기판, 칩, 커패시터를 직접 설명하는 것을 확인했습니다.
+같은 ChatGPT 대화에서 `take_photo`로 새 이미지 13을 촬영하고 분석 버튼을 눌러
+사진 내용을 설명하는 것도 확인했습니다.
+지원되는 파일 전달 기능이 없는 클라이언트에서는 카드에 오류 안내가 표시됩니다.
+
+참고: [ChatGPT 이미지 입력용 위젯 상태](https://developers.openai.com/plugins/build/chatgpt-ui#make-images-visible-to-the-model),
+[파일 업로드 API](https://developers.openai.com/plugins/reference#file-apis).
+
 프로젝트는 `data/gpt/{프로젝트ID}.json`, GPT 이미지 원본은
 `data/images/{이미지ID}.{확장자}`에 저장됩니다. 최근 이미지 조회 도구와
 `GET /gpt/` 엔드포인트는 만들지 않습니다.

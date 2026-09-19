@@ -275,6 +275,14 @@ class GPTAPITests(unittest.TestCase):
         self.assertEqual(result.content[1].type, "image")
         self.assertEqual(result.content[1].mime_type, "image/jpeg")
         self.assertTrue(result.content[1].data)
+        self.assertEqual(result.structured_content, {"image_id": 55, "mime_type": "image/jpeg"})
+        self.assertEqual(result.meta["inventory/image"]["data"], result.content[1].data)
+        image_tools = [tool for tool in tools if tool.name in {"get_image", "take_photo"}]
+        for tool in image_tools:
+            self.assertEqual(tool.meta["ui"]["resourceUri"], gpt_mcp.IMAGE_WIDGET_URI)
+            self.assertIsNotNone(tool.output_schema)
+        widget = asyncio.run(gpt_mcp.inventory_mcp.read_resource(gpt_mcp.IMAGE_WIDGET_URI))
+        self.assertIn("imageIds:[fileId]", widget[0].content)
 
 
 if __name__ == "__main__":

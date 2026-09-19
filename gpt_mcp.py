@@ -1,16 +1,27 @@
 from __future__ import annotations
 
 from typing import Annotated, Any, Callable, TypeVar
+from pathlib import Path
 
 from mcp.server.mcpserver import MCPServer
-from mcp.types import ImageContent, TextContent
+from mcp.types import CallToolResult, ImageContent, TextContent
 from mcp.server.mcpserver.exceptions import ToolError
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 import gpt_api
 
 
 ResultT = TypeVar("ResultT")
+IMAGE_WIDGET_URI = "ui://simsimpc-inventory/image-input-v2.html"
+IMAGE_WIDGET_META = {
+    "ui": {"resourceUri": IMAGE_WIDGET_URI},
+    "openai/outputTemplate": IMAGE_WIDGET_URI,
+}
+
+
+class ImageToolOutput(BaseModel):
+    image_id: int
+    mime_type: str
 
 
 inventory_mcp = MCPServer(
@@ -34,6 +45,16 @@ def _run(operation: Callable[[], ResultT]) -> ResultT:
         return operation()
     except gpt_api.GPTAPIError as error:
         raise ToolError(error.detail) from error
+
+
+@inventory_mcp.resource(
+    IMAGE_WIDGET_URI,
+    name="inventory-image-input",
+    mime_type="text/html;profile=mcp-app",
+    meta={"ui": {"prefersBorder": True}},
+)
+def image_input_widget() -> str:
+    return Path(__file__).with_name("image_widget.html").read_text(encoding="utf-8")
 
 
 @inventory_mcp.tool(name="search_projects", structured_output=False)
@@ -136,31 +157,36 @@ def update_project(
     return _run(lambda: gpt_api.update_project_data(project_id, changes))
 
 
-@inventory_mcp.tool(name="get_image", structured_output=False)
+@inventory_mcp.tool(name="get_image", meta=IMAGE_WIDGET_META)
 def get_image(
     image_id: Annotated[int, Field(description="가져올 저장 이미지 ID")],
-) -> list[Any]:
+) -> Annotated[CallToolResult, ImageToolOutput]:
     """저장된 이미지 자체와 그 image ID를 함께 반환합니다."""
 
     path = _run(lambda: gpt_api.get_image_path(image_id))
     return _image_content(image_id, path)
 
 
-@inventory_mcp.tool(name="take_photo", structured_output=False)
-def take_photo() -> list[Any]:
+@inventory_mcp.tool(name="take_photo", meta=IMAGE_WIDGET_META)
+def take_photo() -> Annotated[CallToolResult, ImageToolOutput]:
     """노트북 카메라 에이전트로 촬영하고 이미지 자체와 새 image ID를 함께 반환합니다."""
 
     image_id, path = _run(gpt_api.take_photo_data)
     return _image_content(image_id, path)
 
 
-def _image_content(image_id, path) -> list[Any]:
+def _image_content(image_id, path) -> CallToolResult:
     response = _run(lambda: gpt_api._image_response(image_id, path))
     # Return native MCP blocks, never a JSON string containing base64.
-    return [
-        TextContent(**response["content_items"][0]),
-        ImageContent(**response["content_items"][1]),
-    ]
+    block = response["content_items"][1]
+    return CallToolResult(
+        content=[
+            TextContent(**response["content_items"][0]),
+            ImageContent(**block),
+        ],
+        structured_content={"image_id": image_id, "mime_type": block["mimeType"]},
+        meta={"inventory/image": block},
+    )
 
 
 mcp_http_app = inventory_mcp.streamable_http_app(
