@@ -243,9 +243,42 @@ class GPTAPITests(unittest.TestCase):
         self.assertEqual(names, gpt_api.TOOL_NAMES)
         self.assertEqual(result.content[0].type, "text")
         self.assertIn("55", result.content[0].text)
-        self.assertEqual(result.content[1].type, "image")
-        self.assertEqual(result.content[1].mime_type, "image/webp")
-        self.assertTrue(result.content[1].data)
+        self.assertEqual(result.content[1].type, "resource")
+        self.assertEqual(result.content[1].resource.mime_type, "image/webp")
+        self.assertTrue(result.content[1].resource.blob)
+        self.assertEqual(result.structured_content["image_id"], 55)
+        self.assertEqual(result.structured_content["mime_type"], "image/webp")
+        self.assertEqual(result.structured_content["image_data"], result.content[1].resource.blob)
+
+        image_tool = next(tool for tool in tools if tool.name == "get_image")
+        self.assertEqual(
+            image_tool.meta["ui"]["resourceUri"],
+            gpt_mcp.IMAGE_WIDGET_URI,
+        )
+        self.assertEqual(
+            image_tool.meta["openai/outputTemplate"],
+            gpt_mcp.IMAGE_WIDGET_URI,
+        )
+
+        resources = asyncio.run(gpt_mcp.inventory_mcp.list_resources())
+        widget = next(resource for resource in resources if resource.uri == gpt_mcp.IMAGE_WIDGET_URI)
+        self.assertEqual(widget.mime_type, "text/html;profile=mcp-app")
+        widget_contents = asyncio.run(gpt_mcp.inventory_mcp.read_resource(gpt_mcp.IMAGE_WIDGET_URI))
+        self.assertIn("ui/notifications/tool-result", widget_contents[0].content)
+        self.assertIn("image_data", widget_contents[0].content)
+
+    def test_mcp_take_photo_returns_the_same_renderable_blob_format(self):
+        image_path = self.image_dir / "73.jpg"
+        image_path.write_bytes(b"new-jpeg")
+
+        with patch.object(gpt_api, "take_photo_data", return_value=(73, image_path)):
+            result = asyncio.run(gpt_mcp.inventory_mcp.call_tool("take_photo", {}))
+
+        self.assertEqual(result.content[0].text, "image_id: 73")
+        self.assertEqual(result.content[1].type, "resource")
+        self.assertEqual(result.content[1].resource.mime_type, "image/jpeg")
+        self.assertEqual(result.structured_content["image_id"], 73)
+        self.assertEqual(result.structured_content["image_data"], result.content[1].resource.blob)
 
 
 if __name__ == "__main__":

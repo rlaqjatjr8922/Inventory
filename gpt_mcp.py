@@ -1,15 +1,53 @@
 from __future__ import annotations
 
+import base64
 from typing import Annotated, Any, Callable, TypeVar
 
-from mcp.server.mcpserver import Image, MCPServer
+from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
-from pydantic import Field
+from mcp_types import BlobResourceContents, CallToolResult, EmbeddedResource, TextContent
+from pydantic import BaseModel, Field
 
 import gpt_api
 
 
 ResultT = TypeVar("ResultT")
+IMAGE_WIDGET_URI = "ui://simsimpc-inventory/image-viewer-v1.html"
+
+
+class ImageToolOutput(BaseModel):
+    """The image payload consumed by the MCP Apps image viewer."""
+
+    image_id: int
+    mime_type: str
+    image_data: str
+
+
+# ChatGPT does not promote an MCP ``image`` content block to a visual input for
+# every connector.  A small MCP Apps resource is therefore the presentation
+# layer.  The embedded resource below keeps the response useful to non-UI MCP
+# clients, while the widget renders the same base64 bytes in ChatGPT.
+_IMAGE_WIDGET_HTML = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>body{margin:0;font-family:system-ui,sans-serif;color:#202124}main{padding:12px}img{display:block;max-width:100%;max-height:560px;margin-top:8px;border-radius:8px;object-fit:contain;background:#f4f4f4}#label{font-weight:600}</style>
+</head><body><main><div id="label">Loading image…</div><img id="image" alt="Inventory image"></main>
+<script>
+const label=document.getElementById('label'), image=document.getElementById('image');
+function render(result){
+  const output=result && (result.structuredContent || result.structured_content || result);
+  if(!output || !output.image_data) return;
+  label.textContent='image_id: '+output.image_id;
+  image.src='data:'+(output.mime_type || 'image/jpeg')+';base64,'+output.image_data;
+  image.alt='Inventory image '+output.image_id;
+}
+// The MCP Apps bridge delivers the current tool result this way.  The
+// window.openai fallback also supports ChatGPT hosts using the compatibility API.
+window.addEventListener('message', event => {
+  const message=event.data;
+  if(event.source===window.parent && message && message.jsonrpc==='2.0' && message.method==='ui/notifications/tool-result') render(message.params);
+});
+render(window.openai && window.openai.toolOutput);
+</script></body></html>"""
 
 
 inventory_mcp = MCPServer(
@@ -33,6 +71,48 @@ def _run(operation: Callable[[], ResultT]) -> ResultT:
         return operation()
     except gpt_api.GPTAPIError as error:
         raise ToolError(error.detail) from error
+
+
+@inventory_mcp.resource(
+    IMAGE_WIDGET_URI,
+    name="inventory-image-viewer",
+    mime_type="text/html;profile=mcp-app",
+    meta={"ui": {"prefersBorder": True}},
+)
+def inventory_image_viewer() -> str:
+    """MCP Apps card used by ChatGPT to render an Inventory image."""
+
+    return _IMAGE_WIDGET_HTML
+
+
+def _image_tool_result(image_id: int, path: Any) -> CallToolResult:
+    """Return an MCP blob plus the structured data used by the ChatGPT widget."""
+
+    mime_type = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp",
+    }.get(path.suffix.lower(), "application/octet-stream")
+    image_data = base64.b64encode(path.read_bytes()).decode("ascii")
+    output = ImageToolOutput(
+        image_id=image_id,
+        mime_type=mime_type,
+        image_data=image_data,
+    )
+    return CallToolResult(
+        content=[
+            TextContent(type="text", text=f"image_id: {image_id}"),
+            EmbeddedResource(
+                resource=BlobResourceContents(
+                    uri=f"inventory://images/{image_id}{path.suffix.lower()}",
+                    mime_type=mime_type,
+                    blob=image_data,
+                )
+            ),
+        ],
+        structured_content=output.model_dump(),
+    )
 
 
 @inventory_mcp.tool(name="search_projects", structured_output=False)
@@ -135,22 +215,34 @@ def update_project(
     return _run(lambda: gpt_api.update_project_data(project_id, changes))
 
 
-@inventory_mcp.tool(name="get_image", structured_output=False)
+@inventory_mcp.tool(
+    name="get_image",
+    meta={
+        "ui": {"resourceUri": IMAGE_WIDGET_URI},
+        "openai/outputTemplate": IMAGE_WIDGET_URI,
+    },
+)
 def get_image(
     image_id: Annotated[int, Field(description="가져올 저장 이미지 ID")],
-) -> list[Any]:
+) -> Annotated[CallToolResult, ImageToolOutput]:
     """저장된 이미지 자체와 그 image ID를 함께 반환합니다."""
 
     path = _run(lambda: gpt_api.get_image_path(image_id))
-    return [f"image_id: {image_id}", Image(path=path)]
+    return _image_tool_result(image_id, path)
 
 
-@inventory_mcp.tool(name="take_photo", structured_output=False)
-def take_photo() -> list[Any]:
+@inventory_mcp.tool(
+    name="take_photo",
+    meta={
+        "ui": {"resourceUri": IMAGE_WIDGET_URI},
+        "openai/outputTemplate": IMAGE_WIDGET_URI,
+    },
+)
+def take_photo() -> Annotated[CallToolResult, ImageToolOutput]:
     """노트북 카메라 에이전트로 촬영하고 이미지 자체와 새 image ID를 함께 반환합니다."""
 
     image_id, path = _run(gpt_api.take_photo_data)
-    return [f"image_id: {image_id}", Image(path=path)]
+    return _image_tool_result(image_id, path)
 
 
 mcp_http_app = inventory_mcp.streamable_http_app(

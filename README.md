@@ -36,6 +36,12 @@ python -m pip install -r requirements.txt
 | `get_image` | `GET /gpt/image/{id}` | 이미지 자체와 image ID 반환 |
 | `take_photo` | `GET /gpt/camera` | 노트북 카메라 촬영 요청 후 이미지와 새 ID 반환 |
 
+MCP 연결에서는 `get_image`와 `take_photo`가 `image_id` 텍스트, 이미지 MIME 타입의
+base64 blob 리소스, 그리고 `structuredContent`를 함께 반환합니다. ChatGPT에서는 두
+도구에 연결된 MCP Apps 이미지 카드가 이 blob을 실제 이미지로 표시합니다. 따라서
+이미지 ID는 대화에서 계속 `[[이미지:ID]]`로 참조할 수 있고, 원본 이미지도 카드에서
+확인할 수 있습니다.
+
 프로젝트는 `data/gpt/{프로젝트ID}.json`, GPT 이미지 원본은
 `data/images/{이미지ID}.{확장자}`에 저장됩니다. 최근 이미지 조회 도구와
 `GET /gpt/` 엔드포인트는 만들지 않습니다.
