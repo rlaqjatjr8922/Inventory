@@ -115,7 +115,6 @@ class GPTAPITests(unittest.TestCase):
             first = gpt_api.add_work_data(
                 123,
                 "NVVDD 0.918V 측정. [[이미지:7]]",
-                result="측정 완료",
             )
             before_second = self.read_project()
 
@@ -133,7 +132,6 @@ class GPTAPITests(unittest.TestCase):
                 123,
                 final_content,
                 overwrite=True,
-                result="두 측정값 기록 완료",
             )
 
         self.assertTrue(first["저장됨"])
@@ -146,7 +144,7 @@ class GPTAPITests(unittest.TestCase):
         stored = self.read_project()["작업내용"]
         self.assertEqual(len(stored), 1)
         self.assertEqual(stored[0]["세부"], final_content)
-        self.assertEqual(stored[0]["결과"], "두 측정값 기록 완료")
+        self.assertNotIn("결과", stored[0])
         self.assertEqual(third["처리"], "overwritten")
 
     def test_work_payload_accepts_existing_korean_names(self):
@@ -154,11 +152,10 @@ class GPTAPITests(unittest.TestCase):
             "내용": "상세 기록",
             "덮어쓰기": True,
             "요약": "짧은 요약",
-            "결과": "정상",
         })
         self.assertEqual(payload.content, "상세 기록")
         self.assertTrue(payload.overwrite)
-        self.assertEqual(payload.result, "정상")
+        self.assertNotIn("result", payload.model_dump())
 
     def test_update_project_only_changes_supplied_fields(self):
         self.write_project()
@@ -176,6 +173,33 @@ class GPTAPITests(unittest.TestCase):
         self.assertEqual(stored["상태"], "완료")
         self.assertEqual(stored["우선도"], 4)
         self.assertEqual(stored["최종결론"], "PK616BA 교체 후 정상")
+
+    def test_latest_image_tracks_only_successful_tool_calls(self):
+        import image_points
+        db = self.image_dir.parent / "inventory.sqlite3"
+        self.assertIsNone(image_points.latest_tool_image(db)["image_id"])
+        for image_id in (91, 92):
+            Image.new("RGB", (20, 20), "red").save(self.image_dir / f"{image_id}.png")
+        gpt_api.get_image(91)
+        first = image_points.latest_tool_image(db)
+        self.assertEqual(first["image_id"], 91)
+        # Admin image rendering must not update the GPT pointer.
+        gpt_api._image_response(92, self.image_dir / "92.png")
+        self.assertEqual(image_points.latest_tool_image(db), first)
+        asyncio.run(gpt_mcp.inventory_mcp.call_tool("get_image", {"image_id": 92}))
+        self.assertEqual(image_points.latest_tool_image(db)["image_id"], 92)
+        with patch.object(gpt_api, "take_photo_data", return_value=(91, self.image_dir / "91.png")):
+            asyncio.run(gpt_mcp.inventory_mcp.call_tool("take_photo", {}))
+        self.assertEqual(image_points.latest_tool_image(db)["image_id"], 91)
+        with patch.object(gpt_api, "take_photo_data", return_value=(92, self.image_dir / "92.png")):
+            gpt_api.take_photo()
+        last = image_points.latest_tool_image(db)
+        self.assertEqual(last["image_id"], 92)
+        with self.assertRaises(gpt_mcp.ToolError):
+            asyncio.run(gpt_mcp.inventory_mcp.call_tool("get_image", {"image_id": 999}))
+        self.assertEqual(image_points.latest_tool_image(db), last)
+        gpt_api.get_image(92)
+        self.assertGreater(image_points.latest_tool_image(db)["revision"], last["revision"])
 
     def test_get_image_response_contains_image_blocks_and_id(self):
         path = self.image_dir / "41.jpg"
@@ -204,6 +228,8 @@ class GPTAPITests(unittest.TestCase):
         self.assertEqual(block["mimeType"], "image/png")
         self.assertEqual(result.content[1].type, "image")
         self.assertEqual(result.content[1].data, block["data"])
+        self.assertEqual(result.model_dump_json(by_alias=True).count(block["data"]), 1)
+        self.assertIsNone(result.meta)
         with Image.open(BytesIO(base64.b64decode(block["data"], validate=True))) as picture:
             self.assertEqual(picture.format, "PNG")
             self.assertEqual(picture.mode, "RGBA")
@@ -242,7 +268,7 @@ class GPTAPITests(unittest.TestCase):
         self.assertEqual(path.read_bytes(), b"new-jpeg")
         self.assertFalse(worker.is_alive())
 
-    def test_scoped_openapi_contains_exactly_six_tools(self):
+    def test_scoped_openapi_contains_exactly_eight_tools(self):
         routes = [
             route
             for route in gpt_api.router.routes
@@ -259,7 +285,7 @@ class GPTAPITests(unittest.TestCase):
         self.assertNotIn("/gpt/", schema["paths"])
         self.assertNotIn("/gpt/latest-image", schema["paths"])
 
-    def test_mcp_exposes_exactly_six_tools_and_image_with_id(self):
+    def test_mcp_exposes_exactly_eight_tools_and_image_with_id(self):
         Image.new("RGB", (24, 16), "blue").save(self.image_dir / "55.webp")
 
         tools = asyncio.run(gpt_mcp.inventory_mcp.list_tools())
@@ -275,14 +301,63 @@ class GPTAPITests(unittest.TestCase):
         self.assertEqual(result.content[1].type, "image")
         self.assertEqual(result.content[1].mime_type, "image/jpeg")
         self.assertTrue(result.content[1].data)
-        self.assertEqual(result.structured_content, {"image_id": 55, "mime_type": "image/jpeg"})
-        self.assertEqual(result.meta["inventory/image"]["data"], result.content[1].data)
+        self.assertEqual(result.structured_content, {"image_id": 55, "mime_type": "image/jpeg", "points": []})
+        self.assertIsNone(result.meta)
+        self.assertEqual(sum(block.type == "image" for block in result.content), 1)
+        serialized = result.model_dump_json(by_alias=True)
+        self.assertEqual(serialized.count(result.content[1].data), 1)
         image_tools = [tool for tool in tools if tool.name in {"get_image", "take_photo"}]
         for tool in image_tools:
-            self.assertEqual(tool.meta["ui"]["resourceUri"], gpt_mcp.IMAGE_WIDGET_URI)
-            self.assertIsNotNone(tool.output_schema)
+            self.assertFalse((tool.meta or {}).get("openai/outputTemplate"))
         widget = asyncio.run(gpt_mcp.inventory_mcp.read_resource(gpt_mcp.IMAGE_WIDGET_URI))
-        self.assertIn("imageIds:[fileId]", widget[0].content)
+        self.assertNotIn("uploadFile", widget[0].content)
+        self.assertNotIn("sendFollowUpMessage", widget[0].content)
+
+    def test_points_persist_update_independently_and_preserve_original(self):
+        from concurrent.futures import ThreadPoolExecutor
+        for image_id in (71, 72):
+            Image.new("RGB", (20, 20), "red").save(self.image_dir / f"{image_id}.jpg")
+        path = self.image_dir / "71.jpg"
+        original = path.read_bytes()
+        self.assertEqual(gpt_api.get_image(71)["points"], [])
+        first = gpt_api.add_point_data(71, 0, 1, "corner")
+        self.assertEqual(first, dict(image_id=71, point_id=1, x=0, y=1, annotation="corner"))
+        self.assertEqual(gpt_api.add_point_data(72, 1, 0, "other")["point_id"], 1)
+        moved = gpt_api.update_point_data(71, 1, x=0.5, y=0.25)
+        self.assertEqual(moved["annotation"], "corner")
+        renamed = gpt_api.update_point_data(71, 1, annotation="")
+        self.assertEqual((renamed["x"], renamed["y"], renamed["annotation"]), (0.5, 0.25, ""))
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            ids = list(pool.map(lambda _: gpt_api.add_point_data(71, .2, .3, "parallel")["point_id"], range(12)))
+        self.assertEqual(sorted(ids), list(range(2, 14)))
+        result = asyncio.run(gpt_mcp.inventory_mcp.call_tool("get_image", {"image_id": 71}))
+        self.assertEqual(result.structured_content["points"], gpt_api.get_image(71)["points"])
+        self.assertEqual(len(result.structured_content["points"]), 13)
+        self.assertEqual(path.read_bytes(), original)
+
+    def test_point_errors_and_http_mcp_tools(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        Image.new("RGB", (20, 20), "blue").save(self.image_dir / "81.png")
+        for value in (-0.1, 1.1, float("nan"), float("inf")):
+            with self.assertRaises(gpt_api.GPTAPIError):
+                gpt_api.add_point_data(81, value, 0, "bad")
+        with self.assertRaises(gpt_api.GPTAPIError):
+            gpt_api.add_point_data(999, 0, 0, "missing")
+        app = FastAPI()
+        app.include_router(gpt_api.router)
+        with TestClient(app) as client:
+            result = client.post("/gpt/image/81/points", json={"x": 0, "y": 1, "annotation": "test"})
+            self.assertEqual(result.status_code, 200)
+            self.assertEqual(client.patch("/gpt/image/81/points/1", json={"annotation": "new"}).json()["x"], 0)
+            self.assertEqual(client.patch("/gpt/image/81/points/1", json={}).status_code, 422)
+            self.assertEqual(client.patch("/gpt/image/81/points/999", json={"x": 0}).status_code, 404)
+            self.assertEqual(client.post("/gpt/image/81/points", json={"x": 2, "y": 0, "annotation": "bad"}).status_code, 422)
+        added = asyncio.run(gpt_mcp.inventory_mcp.call_tool("add_point", {"image_id": 81, "x": .5, "y": .5, "annotation": "mcp"}))
+        self.assertIn('mcp', added.content[0].text)
+        updated = asyncio.run(gpt_mcp.inventory_mcp.call_tool("update_point", {"image_id": 81, "point_id": 2, "annotation": "updated"}))
+        self.assertIn('updated', updated.content[0].text)
+
 
 
 if __name__ == "__main__":

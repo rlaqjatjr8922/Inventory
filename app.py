@@ -167,6 +167,17 @@ async def protect_admin(
 
     path = request.url.path
 
+    # This MCP endpoint does not use OAuth. Discovery must not redirect to HTML.
+    if any(
+        path == metadata_path or path.startswith(metadata_path + "/")
+        for metadata_path in (
+            "/.well-known/oauth-protected-resource",
+            "/.well-known/oauth-authorization-server",
+            "/.well-known/openid-configuration",
+        )
+    ):
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
+
     if (
         path in PUBLIC_PATHS
         or path.startswith("/uploads/")
@@ -783,6 +794,44 @@ def update_memory(memory_key: str, data: dict):
             status_code=status_code,
             detail=str(error)
         )
+
+
+@app.patch("/api/memories/{memory_key}")
+def update_memory_fields(memory_key: str, data: dict):
+    try:
+        return memory_store.update_memory_fields(memory_key, data)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.put("/api/memories/{memory_key}/works/{work_index}")
+def update_memory_work(memory_key: str, work_index: int, data: dict):
+    try:
+        return memory_store.change_work(memory_key, work_index, data)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.delete("/api/memories/{memory_key}/works/{work_index}")
+def delete_memory_work(memory_key: str, work_index: int, data: dict):
+    try:
+        return memory_store.change_work(memory_key, work_index, data, delete=True)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/memory/latest-image")
+def get_latest_tool_image():
+    return gpt_api.image_points.latest_tool_image(gpt_api.IMAGE_DIR.parent / "inventory.sqlite3")
+
+
+@app.get("/api/images/{image_id}")
+def get_memory_image(image_id: int):
+    # Same EXIF orientation and dimensions as GPT sees; stored original is untouched.
+    try:
+        return gpt_api._image_response(image_id, gpt_api.get_image_path(image_id))
+    except gpt_api.GPTAPIError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.detail) from error
 
 
 @app.delete("/api/memories/{memory_key}")

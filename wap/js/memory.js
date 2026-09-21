@@ -1,28 +1,14 @@
-const MEMORY_PRIORITY_NAMES = {
-    1: "낮음",
-    2: "보통",
-    3: "높음",
-    4: "매우높음",
-    5: "고정"
-};
-
 let memoryCategories = [];
 let memoryItems = [];
 let editingMemoryKey = null;
-let editingMemoryAttachments = [];
-
+let savedMemory = null;
+let activeWorkIndex = null;
+let workVersion = null;
+let mutationBusy = false;
+const imageRenderGenerations = new WeakMap();
 
 function memoryElement(id) {
     return document.getElementById(id);
-}
-
-
-function memoryToday() {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, "0");
-    const day = String(now.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
 }
 
 
@@ -86,93 +72,6 @@ async function loadMemoryCategories() {
 }
 
 
-function createMemoryWorkRow(item = {}) {
-    const row = document.createElement("div");
-    row.className = "memory-work-card";
-
-    const header = document.createElement("div");
-    header.className = "memory-work-header";
-
-    const dateInput = document.createElement("input");
-    dateInput.className = "memory-work-date";
-    dateInput.type = "date";
-    dateInput.value = item["작업날짜"] || memoryToday();
-
-    const removeButton = document.createElement("button");
-    removeButton.type = "button";
-    removeButton.className = "danger-button small-button";
-    removeButton.textContent = "작업 삭제";
-    removeButton.addEventListener("click", () => row.remove());
-
-    header.append(dateInput, removeButton);
-
-    const summaryInput = document.createElement("input");
-    summaryInput.className = "memory-work-summary";
-    summaryInput.type = "text";
-    summaryInput.placeholder = "요약";
-    summaryInput.value = item["요약"] || "";
-
-    const detailsInput = document.createElement("textarea");
-    detailsInput.className = "memory-work-details";
-    detailsInput.rows = 5;
-    detailsInput.placeholder = "세부 작업내용 · 이미지 참조 예: [[이미지:1]]";
-    detailsInput.value = item["세부"] || "";
-
-    const outcomeInput = document.createElement("input");
-    outcomeInput.className = "memory-work-outcome";
-    outcomeInput.type = "text";
-    outcomeInput.placeholder = "결과";
-    outcomeInput.value = item["결과"] || "";
-
-    row.append(header, summaryInput, detailsInput, outcomeInput);
-    memoryElement("memory-work-list").appendChild(row);
-}
-
-
-function collectMemoryWorkItems() {
-    return Array.from(
-        document.querySelectorAll(".memory-work-card")
-    ).map(row => ({
-        "작업날짜": row.querySelector(".memory-work-date").value,
-        "요약": row.querySelector(".memory-work-summary").value.trim(),
-        "세부": row.querySelector(".memory-work-details").value.trim(),
-        "결과": row.querySelector(".memory-work-outcome").value.trim()
-    }));
-}
-
-
-function collectMemoryData() {
-    return {
-        "상위태그": memoryElement("memory-category").value,
-        "제목": memoryElement("memory-title").value.trim(),
-        "우선도": Number(memoryElement("memory-priority").value),
-        "상태": memoryElement("memory-status").value,
-        "작업내용": collectMemoryWorkItems(),
-        "최종결론": memoryElement("memory-conclusion").value.trim()
-    };
-}
-
-
-function resetMemoryEditor() {
-    editingMemoryKey = null;
-    editingMemoryAttachments = [];
-    memoryElement("memory-editor-title").textContent = "새 메모";
-    memoryElement("memory-title").value = "";
-    memoryElement("memory-priority").value = "2";
-    memoryElement("memory-status").value = "진행중";
-    memoryElement("memory-conclusion").value = "";
-    memoryElement("memory-work-list").innerHTML = "";
-    memoryElement("memory-attachment-list").innerHTML = "";
-    memoryElement("memory-meta").textContent = "";
-    memoryElement("delete-memory-button").classList.add("hidden");
-    memoryElement("memory-upload-help").textContent =
-        "새 메모는 먼저 저장한 뒤 이미지를 추가할 수 있습니다.";
-    memoryElement("memory-image-file").value = "";
-    memoryElement("memory-image-description").value = "";
-    showMemoryMessage("");
-    createMemoryWorkRow();
-}
-
 
 function formatMemoryDate(value) {
     if (!value) {
@@ -232,100 +131,6 @@ function renderMemoryList() {
 }
 
 
-function renderMemoryAttachments() {
-    const list = memoryElement("memory-attachment-list");
-    list.innerHTML = "";
-
-    for (const attachment of editingMemoryAttachments) {
-        const card = document.createElement("div");
-        card.className = "memory-attachment-card";
-
-        const image = document.createElement("img");
-        image.alt = attachment["설명"] || attachment["원본파일명"] || "첨부 이미지";
-        image.loading = "lazy";
-        image.src =
-            `/api/memories/${editingMemoryKey}/attachments/${attachment["아이디"]}`;
-
-        const info = document.createElement("div");
-        info.className = "memory-attachment-info";
-
-        const reference = document.createElement("code");
-        reference.textContent = `[[이미지:${attachment["아이디"]}]]`;
-
-        const description = document.createElement("span");
-        description.textContent =
-            attachment["설명"] || attachment["원본파일명"] || "설명 없음";
-
-        const actions = document.createElement("div");
-        actions.className = "memory-attachment-actions";
-
-        const copyButton = document.createElement("button");
-        copyButton.type = "button";
-        copyButton.className = "secondary-button small-button";
-        copyButton.textContent = "참조 복사";
-        copyButton.addEventListener("click", async () => {
-            const text = `[[이미지:${attachment["아이디"]}]]`;
-            try {
-                await navigator.clipboard.writeText(text);
-                showMemoryMessage(`${text} 복사 완료`);
-            }
-            catch (error) {
-                showMemoryMessage(`복사할 참조: ${text}`);
-            }
-        });
-
-        const deleteButton = document.createElement("button");
-        deleteButton.type = "button";
-        deleteButton.className = "danger-button small-button";
-        deleteButton.textContent = "삭제";
-        deleteButton.addEventListener("click", () =>
-            deleteMemoryAttachment(attachment["아이디"])
-        );
-
-        actions.append(copyButton, deleteButton);
-        info.append(reference, description, actions);
-        card.append(image, info);
-        list.appendChild(card);
-    }
-}
-
-
-function openMemory(item) {
-    editingMemoryKey = item["메모키"];
-    editingMemoryAttachments = item["첨부파일"] || [];
-    memoryElement("memory-editor-title").textContent = "메모 수정";
-    memoryElement("memory-category").value = item["상위태그"];
-    memoryElement("memory-title").value = item["제목"];
-    memoryElement("memory-priority").value = String(item["우선도"]);
-    memoryElement("memory-status").value = item["상태"];
-    memoryElement("memory-conclusion").value = item["최종결론"] || "";
-    memoryElement("memory-work-list").innerHTML = "";
-
-    const workItems = item["작업내용"] || [];
-    if (workItems.length) {
-        workItems.forEach(createMemoryWorkRow);
-    }
-    else {
-        createMemoryWorkRow();
-    }
-
-    memoryElement("delete-memory-button").classList.remove("hidden");
-    memoryElement("memory-upload-help").textContent =
-        "JPG·PNG·WEBP, 이미지당 최대 10MB";
-    memoryElement("memory-meta").textContent =
-        `생성 ${formatMemoryDate(item["생성일시"])} · 수정 ${formatMemoryDate(item["수정일시"])}`;
-    showMemoryMessage("");
-    renderMemoryAttachments();
-    renderMemoryList();
-
-    if (window.innerWidth <= 900) {
-        memoryElement("memory-editor-title").scrollIntoView({
-            behavior: "smooth",
-            block: "start"
-        });
-    }
-}
-
 
 async function loadMemories() {
     const params = new URLSearchParams();
@@ -349,178 +154,334 @@ async function loadMemories() {
 }
 
 
-async function saveMemory() {
-    const data = collectMemoryData();
-    const isEditing = Boolean(editingMemoryKey);
-    const url = isEditing
-        ? `/api/memories/${editingMemoryKey}`
-        : "/api/memories";
-
-    const response = await fetch(url, {
-        method: isEditing ? "PUT" : "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(data)
-    });
-
-    if (!response.ok) {
-        showMemoryMessage(
-            await memoryErrorMessage(response, "저장 실패"),
-            true
-        );
-        return;
-    }
-
-    const saved = await response.json();
-    editingMemoryKey = saved["메모키"];
-    editingMemoryAttachments = saved["첨부파일"] || [];
-    await loadMemories();
-    openMemory(saved);
-    showMemoryMessage(isEditing ? "수정했습니다." : "저장했습니다. 이제 이미지를 추가할 수 있습니다.");
+function basicValues() {
+    return {
+        "상위태그": memoryElement("memory-category").value,
+        "제목": memoryElement("memory-title").value.trim(),
+        "우선도": Number(memoryElement("memory-priority").value),
+        "상태": memoryElement("memory-status").value,
+        "최종결론": memoryElement("memory-conclusion").value.trim()
+    };
 }
 
+function fillBasic(item) {
+    memoryElement("memory-category").value = item["상위태그"] || memoryCategories[0] || "";
+    memoryElement("memory-title").value = item["제목"] || "";
+    memoryElement("memory-priority").value = String(item["우선도"] || 2);
+    memoryElement("memory-status").value = item["상태"] || "진행중";
+    memoryElement("memory-conclusion").value = item["최종결론"] || "";
+}
+
+function resetMemoryEditor() {
+    editingMemoryKey = null;
+    savedMemory = null;
+    fillBasic({});
+    memoryElement("memory-editor-title").textContent = "새 메모";
+    memoryElement("memory-saved-sections").hidden = true;
+    memoryElement("delete-memory-button").classList.add("hidden");
+    memoryElement("reset-memory-button").textContent = "입력 초기화";
+    showMemoryMessage("");
+    renderMemoryList();
+}
+
+function renderWorkList() {
+    const list = memoryElement("memory-work-list");
+    list.replaceChildren();
+    const works = savedMemory?.["작업내용"] || [];
+    if (!works.length) {
+        const empty = document.createElement("p");
+        empty.className = "memory-empty";
+        empty.textContent = "저장된 작업내용이 없습니다.";
+        list.append(empty);
+    }
+    works.forEach((work, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "memory-work-link";
+        button.textContent = `${work["작업날짜"]} : ${work["요약"] || "요약 없음"}`;
+        button.addEventListener("click", () => openWork(index));
+        list.append(button);
+    });
+}
+
+function openMemory(item) {
+    if (!memoryCategories.includes(item["상위태그"])) {
+        memoryCategories.push(item["상위태그"]);
+        fillMemoryCategorySelects();
+    }
+    editingMemoryKey = item["메모키"];
+    savedMemory = structuredClone(item);
+    fillBasic(savedMemory);
+    memoryElement("memory-editor-title").textContent = "메모 보기";
+    memoryElement("memory-saved-sections").hidden = false;
+    memoryElement("delete-memory-button").classList.remove("hidden");
+    memoryElement("reset-memory-button").textContent = "입력 취소";
+    renderWorkList();
+    renderMemoryList();
+    showMemoryMessage("");
+}
+
+async function memoryRequest(url, method, data) {
+    const response = await fetch(url, {
+        method, headers: {"Content-Type": "application/json"},
+        ...(data === undefined ? {} : {body: JSON.stringify(data)})
+    });
+    if (!response.ok) throw new Error(await memoryErrorMessage(response, "요청을 처리하지 못했습니다."));
+    return response.json();
+}
+
+function rememberSaved(item) {
+    savedMemory = structuredClone(item);
+    const index = memoryItems.findIndex(row => row["메모키"] === item["메모키"]);
+    if (index < 0) memoryItems.unshift(item);
+    else memoryItems[index] = item;
+    renderMemoryList();
+    renderWorkList();
+}
+
+async function saveMemory() {
+    const editing = editingMemoryKey !== null;
+    const data = basicValues();
+    if (!editing) delete data["최종결론"];
+    else data["버전"] = savedMemory["버전"];
+    const saved = await memoryRequest(editing ? `/api/memories/${editingMemoryKey}` : "/api/memories",
+        editing ? "PATCH" : "POST", data);
+    rememberSaved(saved);
+    openMemory(saved);
+    showMemoryMessage("저장했습니다.");
+}
 
 async function deleteMemory() {
-    if (!editingMemoryKey) return;
-    if (!window.confirm("이 메모와 첨부 이미지를 모두 삭제할까요?")) return;
-
-    const response = await fetch(`/api/memories/${editingMemoryKey}`, {
-        method: "DELETE"
-    });
-
-    if (!response.ok) {
-        showMemoryMessage(
-            await memoryErrorMessage(response, "삭제 실패"),
-            true
-        );
-        return;
-    }
-
+    if (!editingMemoryKey || !window.confirm("현재 메모 전체와 모든 작업내용을 삭제할까요? 이미지 원본은 보관됩니다.")) return;
+    await memoryRequest(`/api/memories/${editingMemoryKey}`, "DELETE");
+    memoryItems = memoryItems.filter(item => item["메모키"] !== editingMemoryKey);
     resetMemoryEditor();
-    await loadMemories();
     showMemoryMessage("메모를 삭제했습니다.");
 }
 
-
-async function uploadMemoryImage() {
-    if (!editingMemoryKey) {
-        showMemoryMessage("메모를 먼저 저장해주세요.", true);
-        return;
-    }
-
-    const file = memoryElement("memory-image-file").files[0];
-    if (!file) {
-        showMemoryMessage("추가할 이미지를 선택해주세요.", true);
-        return;
-    }
-
-    const description = memoryElement("memory-image-description").value.trim();
-    const response = await fetch(
-        `/api/memories/${editingMemoryKey}/attachments`,
-        {
-            method: "POST",
-            headers: {
-                "Content-Type": file.type,
-                "X-File-Name": encodeURIComponent(file.name),
-                "X-File-Description": encodeURIComponent(description)
-            },
-            body: file
-        }
-    );
-
-    if (!response.ok) {
-        showMemoryMessage(
-            await memoryErrorMessage(response, "이미지 추가 실패"),
-            true
-        );
-        return;
-    }
-
-    const attachment = await response.json();
-    memoryElement("memory-image-file").value = "";
-    memoryElement("memory-image-description").value = "";
-    const refreshedResponse = await fetch(`/api/memories/${editingMemoryKey}`);
-    const refreshed = await refreshedResponse.json();
-    editingMemoryAttachments = refreshed["첨부파일"] || [];
-    renderMemoryAttachments();
-    await loadMemories();
-    showMemoryMessage(`[[이미지:${attachment["아이디"]}]] 추가 완료`);
+function setWorkEditing(editing) {
+    memoryElement("memory-work-view").hidden = editing;
+    memoryElement("memory-work-edit").hidden = !editing;
+    memoryElement("edit-memory-work").hidden = editing;
+    memoryElement("cancel-memory-work").hidden = !editing;
+    memoryElement("save-memory-work").hidden = !editing;
 }
 
-
-async function deleteMemoryAttachment(attachmentId) {
-    if (!window.confirm("이 이미지를 삭제할까요?")) return;
-
-    const response = await fetch(
-        `/api/memories/${editingMemoryKey}/attachments/${attachmentId}`,
-        {method: "DELETE"}
-    );
-
-    if (!response.ok) {
-        showMemoryMessage(
-            await memoryErrorMessage(response, "이미지 삭제 실패"),
-            true
-        );
-        return;
-    }
-
-    editingMemoryAttachments = editingMemoryAttachments.filter(
-        item => Number(item["아이디"]) !== Number(attachmentId)
-    );
-    renderMemoryAttachments();
-    await loadMemories();
-    showMemoryMessage("이미지를 삭제했습니다. 본문의 참조도 확인해주세요.");
+function showWork() {
+    const work = savedMemory["작업내용"][activeWorkIndex];
+    memoryElement("work-view-date").textContent = work["작업날짜"];
+    memoryElement("work-view-summary").textContent = work["요약"];
+    memoryElement("work-date").value = work["작업날짜"];
+    memoryElement("work-summary").value = work["요약"];
+    memoryElement("work-details").value = work["세부"];
+    memoryElement("memory-work-message").textContent = "";
+    setWorkEditing(false);
+    renderWorkContent(work["세부"] || "");
 }
 
+function openWork(index) {
+    activeWorkIndex = index;
+    workVersion = savedMemory["버전"];
+    showWork();
+    memoryElement("memory-work-dialog").showModal();
+}
 
-async function addMemoryCategory() {
-    const name = window.prompt("추가할 상위태그 이름");
-    if (name === null) return;
-
-    const response = await fetch("/api/memory/categories", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({"이름": name})
+async function changeWork(remove = false) {
+    if (remove && !window.confirm("이 작업내용만 삭제할까요? 메모의 다른 작업내용은 유지됩니다.")) return;
+    const data = {"버전": workVersion};
+    if (!remove) Object.assign(data, {
+        "작업날짜": memoryElement("work-date").value,
+        "요약": memoryElement("work-summary").value,
+        "세부": memoryElement("work-details").value
     });
-
-    if (!response.ok) {
-        showMemoryMessage(
-            await memoryErrorMessage(response, "상위태그 추가 실패"),
-            true
-        );
-        return;
-    }
-
-    memoryCategories = await response.json();
-    fillMemoryCategorySelects();
-    memoryElement("memory-category").value = name.trim();
-    showMemoryMessage("상위태그를 추가했습니다.");
-}
-
-
-async function initializeMemoryPage() {
-    try {
-        await loadMemoryCategories();
-        resetMemoryEditor();
-        await loadMemories();
-    }
-    catch (error) {
-        console.error(error);
-        showMemoryMessage(error.message || "메모리 초기화 실패", true);
+    const saved = await memoryRequest(`/api/memories/${editingMemoryKey}/works/${activeWorkIndex}`,
+        remove ? "DELETE" : "PUT", data);
+    // Update the saved baseline, but leave unsaved basic fields in their inputs.
+    rememberSaved(saved);
+    workVersion = saved["버전"];
+    if (remove) memoryElement("memory-work-dialog").close();
+    else {
+        showWork();
+        memoryElement("memory-work-message").textContent = "작업내용을 저장했습니다.";
     }
 }
 
+function parseWorkContent(text) {
+    const expression = /\{(\d+):\s*(\d+|\[\s*\d+(?:\s*,\s*\d+)*\s*\])\s*\}|\[\[이미지:(\d+)\]\]/g;
+    const tokens = [];
+    let position = 0;
+    for (const match of text.matchAll(expression)) {
+        if (match.index > position) tokens.push({text: text.slice(position, match.index)});
+        tokens.push({imageId: Number(match[1] || match[3]),
+            pointIds: match[2] ? [...new Set((match[2].match(/\d+/g) || []).map(Number))] : []});
+        position = match.index + match[0].length;
+    }
+    if (position < text.length) tokens.push({text: text.slice(position)});
+    return tokens;
+}
+
+async function renderWorkContent(text, container = memoryElement("work-view-content"), tokens = parseWorkContent(text)) {
+    const generation = (imageRenderGenerations.get(container) || 0) + 1;
+    imageRenderGenerations.set(container, generation);
+    container.replaceChildren();
+    const requests = new Map();
+    const jobs = [];
+    for (const token of tokens) {
+        if (token.text !== undefined) {
+            const paragraph = document.createElement("div");
+            paragraph.className = "memory-work-text";
+            paragraph.textContent = token.text;
+            container.append(paragraph);
+            continue;
+        }
+        const figure = document.createElement("figure");
+        figure.className = "memory-point-figure";
+        const caption = document.createElement("figcaption");
+        caption.textContent = `이미지 ${token.imageId} 불러오는 중…`;
+        figure.append(caption);
+        container.append(figure);
+        if (!requests.has(token.imageId)) requests.set(token.imageId,
+            fetch(`/api/images/${token.imageId}`).then(async response => {
+                if (!response.ok) throw new Error("이미지를 찾거나 불러올 수 없습니다.");
+                return response.json();
+            }));
+        jobs.push((async () => {
+            try {
+                const result = await requests.get(token.imageId);
+                if (generation !== imageRenderGenerations.get(container)) return;
+                const block = result.content_items.find(item => item.type === "image");
+                if (!block || !["image/jpeg", "image/png"].includes(block.mimeType)) throw new Error("이미지 형식 오류");
+                const stage = document.createElement("div");
+                stage.className = "memory-point-stage";
+                const img = document.createElement("img");
+                img.alt = `이미지 ${token.imageId}`;
+                img.src = `data:${block.mimeType};base64,${block.data}`;
+                img.addEventListener("error", () => {
+                    stage.hidden = true;
+                    caption.textContent = `이미지 ${token.imageId} 표시 실패`;
+                });
+                stage.append(img);
+                const note = document.createElement("p");
+                note.className = "memory-point-note";
+                note.setAttribute("role", "status");
+                note.hidden = true;
+                const available = new Set();
+                for (const point of result.points || []) {
+                    if (!(token.allPoints || token.pointIds.includes(point.point_id)) || !Number.isFinite(point.x) || !Number.isFinite(point.y)) continue;
+                    available.add(point.point_id);
+                    const marker = document.createElement("button");
+                    marker.type = "button";
+                    marker.className = "memory-point-marker";
+                    marker.style.left = `${point.x * 100}%`;
+                    marker.style.top = `${point.y * 100}%`;
+                    marker.style.setProperty("--shift-x", point.x < .05 ? "0%" : point.x > .95 ? "-100%" : "-50%");
+                    marker.style.setProperty("--shift-y", point.y < .05 ? "0%" : point.y > .95 ? "-100%" : "-50%");
+                    marker.textContent = `● ${point.point_id}`;
+                    marker.setAttribute("aria-label", `포인트 ${point.point_id}: ${point.annotation || "주석 없음"}`);
+                    marker.title = point.annotation || "주석 없음";
+                    marker.addEventListener("click", () => {
+                        note.textContent = `${point.point_id}: ${point.annotation || "주석 없음"}`;
+                        note.hidden = false;
+                    });
+                    stage.append(marker);
+                }
+                const missing = token.pointIds.filter(id => !available.has(id));
+                caption.textContent = `이미지 ${token.imageId}` + (missing.length ? ` · 없는 포인트: ${missing.join(", ")}` : "");
+                figure.prepend(stage);
+                figure.append(note);
+            } catch (error) {
+                if (generation === imageRenderGenerations.get(container)) caption.textContent = `이미지 ${token.imageId}: ${error.message}`;
+            }
+        })());
+    }
+    await Promise.all(jobs);
+}
+
+function bindMemoryAction(id, action, work = false) {
+    memoryElement(id).addEventListener("click", async () => {
+        if (mutationBusy) return;
+        mutationBusy = true;
+        const controls = [...document.querySelectorAll(".memory-editor-panel input, .memory-editor-panel select, .memory-editor-panel textarea, .memory-editor-panel button, .memory-list button, #new-memory-button, #memory-work-dialog button, #memory-work-dialog input, #memory-work-dialog textarea")];
+        controls.forEach(control => control.disabled = true);
+        try { await action(); }
+        catch (error) {
+            if (work) memoryElement("memory-work-message").textContent = error.message;
+            else showMemoryMessage(error.message || "요청 실패", true);
+        } finally {
+            mutationBusy = false;
+            controls.forEach(control => control.disabled = false);
+        }
+    });
+}
 
 memoryElement("new-memory-button").addEventListener("click", resetMemoryEditor);
-memoryElement("reset-memory-button").addEventListener("click", resetMemoryEditor);
-memoryElement("add-memory-work-button").addEventListener("click", () => createMemoryWorkRow());
-memoryElement("add-memory-category-button").addEventListener("click", addMemoryCategory);
-memoryElement("save-memory-button").addEventListener("click", saveMemory);
-memoryElement("delete-memory-button").addEventListener("click", deleteMemory);
-memoryElement("upload-memory-image-button").addEventListener("click", uploadMemoryImage);
+memoryElement("reset-memory-button").addEventListener("click", () => {
+    if (savedMemory) { fillBasic(savedMemory); showMemoryMessage("저장된 값으로 되돌렸습니다."); }
+    else resetMemoryEditor();
+});
+bindMemoryAction("save-memory-button", saveMemory);
+bindMemoryAction("delete-memory-button", deleteMemory);
+bindMemoryAction("save-memory-work", () => changeWork(), true);
+bindMemoryAction("delete-memory-work", () => changeWork(true), true);
+memoryElement("edit-memory-work").addEventListener("click", () => setWorkEditing(true));
+memoryElement("cancel-memory-work").addEventListener("click", showWork);
+memoryElement("close-memory-work").addEventListener("click", () => memoryElement("memory-work-dialog").close());
+memoryElement("memory-work-dialog").addEventListener("cancel", event => { if (mutationBusy) event.preventDefault(); });
+for (const [id, event] of [["memory-search", "input"], ["memory-category-filter", "change"], ["memory-status-filter", "change"], ["memory-priority-filter", "change"]]) {
+    memoryElement(id).addEventListener(event, () => loadMemories().catch(error => showMemoryMessage(error.message, true)));
+}
+(async () => {
+    try { await loadMemoryCategories(); resetMemoryEditor(); await loadMemories(); }
+    catch (error) { showMemoryMessage(error.message || "메모 초기화 실패", true); }
+})();
 
-memoryElement("memory-search").addEventListener("input", loadMemories);
-memoryElement("memory-category-filter").addEventListener("change", loadMemories);
-memoryElement("memory-status-filter").addEventListener("change", loadMemories);
-memoryElement("memory-priority-filter").addEventListener("change", loadMemories);
 
-initializeMemoryPage();
+function displaySearchImage(imageId, target) {
+    return renderWorkContent("", memoryElement(target), [{imageId, pointIds: [], allPoints: true}]);
+}
+
+memoryElement("memory-search-mode").addEventListener("change", event => {
+    const workSearch = event.target.checked;
+    memoryElement("memory-search-mode-label").textContent = workSearch ? "ON · 작업검색" : "OFF · 이미지검색";
+    memoryElement("memory-work-search").hidden = !workSearch;
+    memoryElement("memory-image-search").hidden = workSearch;
+    if (!workSearch) memoryElement("memory-image-id").focus();
+});
+
+memoryElement("memory-image-search-form").addEventListener("submit", event => {
+    event.preventDefault();
+    const raw = memoryElement("memory-image-id").value.trim();
+    const id = Number(raw);
+    if (!/^\d+$/.test(raw) || !Number.isSafeInteger(id) || id < 1) {
+        memoryElement("memory-image-search-message").textContent = "올바른 image_id를 입력해주세요.";
+        return;
+    }
+    memoryElement("memory-image-search-message").textContent = "";
+    void displaySearchImage(id, "memory-image-search-result");
+});
+
+let latestImageRevision = null;
+let latestImagePolling = false;
+async function refreshLatestImage() {
+    if (latestImagePolling || document.hidden) return;
+    latestImagePolling = true;
+    try {
+        const response = await fetch("/api/memory/latest-image", {cache: "no-store"});
+        if (!response.ok) throw new Error("최근 호출 이미지를 확인하지 못했습니다. 자동으로 다시 확인합니다.");
+        const latest = await response.json();
+        memoryElement("memory-latest-message").textContent = latest.image_id === null
+            ? "아직 GPT가 호출한 이미지가 없습니다." : `image_id: ${latest.image_id}`;
+        if (latest.revision !== latestImageRevision) {
+            latestImageRevision = latest.revision;
+            if (latest.image_id !== null) await displaySearchImage(latest.image_id, "memory-latest-result");
+            else memoryElement("memory-latest-result").replaceChildren();
+        }
+    } catch (error) {
+        memoryElement("memory-latest-message").textContent = error.message;
+    } finally { latestImagePolling = false; }
+}
+void refreshLatestImage();
+setInterval(() => {
+    if (memoryElement("page-memory").classList.contains("active")) void refreshLatestImage();
+}, 3000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) void refreshLatestImage(); });

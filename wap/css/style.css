@@ -727,3 +727,36 @@ tbody tr:hover {
         grid-template-columns: 1fr 1fr;
     }
 }
+
+/* Memo detail and image coordinates share the exact displayed image box. */
+[hidden] { display: none !important; }
+.memory-basic-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.memory-work-link { width:100%; padding:16px; border:1px solid #d1d5db; border-radius:10px; background:#f8fafc; color:#1e293b; text-align:left; white-space:normal; overflow-wrap:anywhere; }
+.memory-work-link:hover { background:#eff6ff; border-color:#93c5fd; }
+.memory-conclusion-section { margin-top:24px; }
+#memory-work-dialog { width:min(860px, calc(100vw - 32px)); max-height:90vh; box-sizing:border-box; border:0; border-radius:14px; padding:24px; color:#1e293b; }
+#memory-work-dialog::backdrop { background:rgba(15,23,42,.5); }
+#memory-work-dialog dd { margin:4px 0 16px; white-space:pre-wrap; overflow-wrap:anywhere; }
+#memory-work-dialog dt { color:#64748b; }
+#work-view-content { overflow-wrap:anywhere; }
+.memory-work-text { white-space:pre-wrap; }
+.memory-point-figure { margin:16px 0; }
+.memory-point-stage { position:relative; width:fit-content; max-width:100%; line-height:0; }
+.memory-point-stage > img { display:block; max-width:100%; height:auto; }
+.memory-point-marker { position:absolute; transform:translate(var(--shift-x),var(--shift-y)); border:2px solid white; border-radius:14px; padding:3px 7px; min-width:34px; min-height:28px; background:#b91c1c; color:white; font-size:14px; font-weight:700; line-height:20px; box-shadow:0 1px 4px #0009; cursor:pointer; }
+.memory-point-marker:focus-visible { outline:3px solid #2563eb; outline-offset:2px; }
+.memory-point-figure figcaption { color:#64748b; font-size:13px; margin-top:8px; }
+.memory-point-note { white-space:pre-wrap; padding:12px; border-radius:8px; background:#eff6ff; }
+#memory-work-message { color:#b91c1c; }
+@media(max-width:600px) { #memory-work-dialog { padding:16px; } }
+.memory-editor-panel > .edit-actions { justify-content:space-between; }
+.memory-search-toggle { display:flex; align-items:center; gap:10px; margin-bottom:16px; cursor:pointer; font-weight:600; }
+.memory-search-toggle input { appearance:none; width:44px; height:24px; border-radius:20px; background:#64748b; cursor:pointer; position:relative; flex-shrink:0; }
+.memory-search-toggle input::after { content:""; position:absolute; width:18px; height:18px; top:3px; left:3px; border-radius:50%; background:white; transition:transform .15s; }
+.memory-search-toggle input:checked { background:#176b52; }
+.memory-search-toggle input:checked::after { transform:translateX(20px); }
+.memory-search-toggle input:focus-visible { outline:3px solid #93c5fd; outline-offset:3px; }
+#memory-image-search-form input { display:block; width:100%; padding:10px; margin-top:8px; border:1px solid #cbd5e1; border-radius:8px; }
+.memory-latest-image { border-top:1px solid #e2e8f0; margin-top:24px; padding-top:16px; }
+.memory-latest-image h3 { font-size:15px; margin:0 0 10px; }
+#memory-latest-message, #memory-image-search-message { font-size:13px; color:#64748b; }

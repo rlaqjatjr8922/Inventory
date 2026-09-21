@@ -5,14 +5,50 @@
 
 고객 사이트: https://rlaqjatjr8922.github.io/Inventory/
 
-관리자 화면의 **메모리** 메뉴에서는 고객·글카·친구·배송·기타 상위태그로
-작업 기록을 저장하고 검색할 수 있습니다. 상위태그는 직접 추가할 수 있으며,
-날짜별 요약·세부내용·결과와 최종결론, 우선도, 상태를 기록합니다. 메모 이미지는
-본문에서 `[[이미지:번호]]` 형식으로 참조합니다.
+관리자 화면의 **메모리** 메뉴에서 작업 기록을 저장하고 검색할 수 있습니다.
+새 메모는 상위태그·제목·우선도·상태만 입력합니다. 기존 메모는 **메모 보기**에서
+기본 정보와 최종결론을 하단 저장 버튼으로 저장하고, 입력 취소로 최근 저장값을 복원합니다.
+날짜·요약으로 표시되는 작업 상자를 누르면 **세부내용 보기**가 열리며, 각 작업의
+수정·저장·삭제는 메모 기본 정보 저장과 독립적으로 처리합니다. 작업을 저장해도
+상단에 입력 중인 기본 정보 초안은 유지됩니다. 전체 메모 삭제에는 확인 절차가 있습니다.
 
-메모 원본은 `data/memories.json`, 상위태그는 `data/memory_categories.json`,
-첨부 이미지는 `data/memory_uploads/`에 저장됩니다. 모두 `.gitignore`의 `data/`
+검색 영역의 ON/OFF 토글은 ON=작업검색, OFF=이미지검색입니다.
+이미지검색에서 image_id를 입력하고 Enter를 누르면 이미지와 저장된 모든 포인트를 표시합니다.
+두 검색 모드 아래에 GPT가 마지막으로 호출한 이미지를 자동 표시합니다.
+MCP/HTTP get_image·take_photo가 이미지를 성공적으로 반환할 때 최근 호출 ID가 저장되며,
+메모리 탭이 보이는 동안 3초마다 확인합니다. 같은 이미지 재호출도 갱신됩니다.
+관리자 이미지검색·작업 이미지 표시는 최근 GPT 호출 기록을 변경하지 않습니다.
+최근 호출 ID는 SQLite의 image_tool_state에 보관되어 서버 재시작 후에도 유지됩니다.
+
+상세 작업내용의 `{12:1}`, `{12:[1,2,3]}`는 해당 위치에 이미지 한 장과 지정한 포인트를
+표시합니다. 서로 다른 이미지나 같은 이미지의 반복 참조도 본문 순서를 유지합니다.
+기존 `[[이미지:12]]` 참조는 포인트 없는 이미지로 표시됩니다. 포인트를 클릭하면 주석을
+확인할 수 있으며, 없는 이미지·포인트는 나머지 본문 표시를 방해하지 않습니다.
+정규화 좌표에 맞춘 브라우저 오버레이이므로 화면 크기가 바뀌어도 위치가 유지되며
+원본 이미지 파일에 점·숫자·글씨를 합성하지 않습니다.
+
+관리자 API는 기본 정보 저장에 `PATCH /api/memories/{key}`, 개별 작업 저장/삭제에
+`PUT`/`DELETE /api/memories/{key}/works/{index}`를 사용합니다. 작업 요청은 저장 버전을
+검증하므로 오래된 목록의 번호로 다른 작업을 덮어쓰거나 삭제하지 않습니다.
+이미지와 포인트는 관리자 인증이 적용되는 `GET /api/images/{image_id}`로 조회합니다.
+
+검증: `python -m unittest discover -s tests -q` 및 `node tests/memory_ui.cjs`.
+브라우저 테스트에는 Playwright와 Edge가 필요하며 테스트용 응답만 사용합니다.
+다른 설치된 브라우저는 `PLAYWRIGHT_CHANNEL`로 선택할 수 있습니다.
+
+메모 원본은 플러그인과 동일한 `data/gpt/{프로젝트ID}.json`, 상위태그는
+`data/memory_categories.json`, 첨부 이미지는 공통 번호를 사용하는
+`data/images/`에 저장됩니다. 사이트에서 만든 메모는 플러그인 검색에 나타나고,
+플러그인의 작업 기록·수정은 사이트에서 다시 조회하면 표시됩니다.
+모두 `.gitignore`의 `data/`
 범위에 포함되므로 GitHub Pages나 공개 저장소에는 게시되지 않습니다.
+
+기존 `data/memories.json`이 있으면 서버 시작 시 프로젝트 형식으로 한 번 옮기고,
+메모별 이미지 번호와 본문의 참조도 공통 이미지 번호로 변환합니다.
+원래 JSON과 `data/memory_uploads/` 파일은 백업으로 유지하며,
+`data/memory_project_ids.json`에 이전 메모키와 프로젝트 ID 대응을 기록합니다.
+메모·첨부 삭제 시 다른 프로젝트와 플러그인에서 참조할 수 있는 이미지 원본은 유지합니다.
+편집 중 플러그인에서 내용이 바뀌면 사이트 저장을 거부해 새 기록이 지워지는 것을 방지합니다.
 
 관리자 서버용 패키지를 처음 설치할 때는 다음 명령을 실행합니다.
 
@@ -25,7 +61,7 @@ python -m pip install -r requirements.txt
 서버 PC에서 FastAPI를 실행하면 ChatGPT용 Streamable HTTP MCP가 `/mcp/`에
 함께 열립니다. ChatGPT 플러그인에는 서버의 HTTPS 주소 뒤에 `/mcp/`를 붙여
 연결합니다. OpenAPI 방식이 필요한 경우에는 `/gpt/openapi.json`을 가져오면 됩니다.
-두 연결 방식 모두 외부에 공개하는 도구는 정확히 다음 6개입니다.
+두 연결 방식 모두 외부에 공개하는 도구는 정확히 다음 8개입니다.
 
 | 도구 | REST 경로 | 용도 |
 | --- | --- | --- |
@@ -33,8 +69,10 @@ python -m pip install -r requirements.txt
 | `get_project` | `GET /gpt/{id}` | 기본 일반보기, 꼭 필요할 때만 `detail=true` |
 | `add_work` | `POST /gpt/{id}/work` | 오늘의 상세 작업 기록 저장 |
 | `update_project` | `PATCH /gpt/{id}` | 제목·상태·우선도·최종결론·상위태그 수정 |
-| `get_image` | `GET /gpt/image/{id}` | 이미지 자체와 image ID 반환 |
+| `get_image` | `GET /gpt/image/{id}` | 이미지 자체, image ID, points 반환 |
 | `take_photo` | `GET /gpt/camera` | 노트북 카메라 촬영 요청 후 이미지와 새 ID 반환 |
+| `add_point` | `POST /gpt/image/{image_id}/points` | x, y, annotation 저장, 이미지별 point_id 자동 발급 |
+| `update_point` | `PATCH /gpt/image/{image_id}/points/{point_id}` | 지정한 x, y, annotation만 수정 |
 
 MCP 연결에서는 `get_image`와 `take_photo`가 `image_id` 텍스트와 네이티브
 `type=image` 콘텐츠를 함께 반환합니다. HTTP 응답에는 `image_id`, `content`,
@@ -44,26 +82,27 @@ MCP 연결에서는 `get_image`와 `take_photo`가 `image_id` 텍스트와 네�
 최대 1600픽셀로 제한합니다. JPEG 품질은 85입니다.
 이미지 ID는 대화에서 계속 `[[이미지:ID]]`로 참조할 수 있습니다.
 
-### ChatGPT에서 사진 분석
+### 이미지 단일 전달과 좌표 주석
 
-ChatGPT의 일부 연결 경로에서는 네이티브 MCP 이미지 블록이 모델의 시각 입력으로
-전달되지 않습니다. 사진 표시와 모델의 사진 인식은 별도로 검증해야 합니다.
-`get_image`와 `take_photo`는 같은 사진 카드도 반환합니다. 카드에서 **이 사진 분석하기**를
-누르면 `window.openai.uploadFile`로 사진을 ChatGPT 파일로 등록하고,
-`setWidgetState`의 `imageIds`에 실제 파일 ID를 연결한 뒤 분석 요청을 보냅니다.
-이 경로에서는 버튼을 한 번 눌러야 합니다. Inventory 숫자 ID와 ChatGPT 파일 ID는
-서로 다른 식별자이며, 사진을 외부 공개 URL로 게시하지 않습니다.
+기존 중복 원인은 네이티브 MCP 이미지 반환과 사진 위젯의 재업로드/자동 첨부가
+동시에 실행된 것입니다. 이제 `get_image`와 `take_photo`는 네이티브 이미지 블록을
+정확히 하나만 반환합니다. 이미지 데이터를 `_meta`에 복사하지 않으며, 도구의 사진
+위젯 연결 및 위젯의 업로드/후속 메시지 기능을 제거했습니다. 별도 URL이나 파일 첨부로
+같은 이미지를 재전송하지 않습니다. image_id와 points는 텍스트 및 구조화 메타데이터로 전달합니다.
+HTTP 응답도 `content_items` 안에 이미지 블록 하나만 포함하고 `points`를 함께 반환합니다.
 
-서버 업데이트 후 ChatGPT의 Inventory 플러그인 관리 화면에서 **새로 고침**을 누르고
-새 대화에서 테스트합니다. 출력 템플릿은 `ui://simsimpc-inventory/image-input-v2.html`입니다.
-2026-09-19 실제 ChatGPT 대화에서 이미지 9의 일반 도구 반환은 인식에 실패했지만,
-카드의 분석 버튼을 누른 후에는 기판, 칩, 커패시터를 직접 설명하는 것을 확인했습니다.
-같은 ChatGPT 대화에서 `take_photo`로 새 이미지 13을 촬영하고 분석 버튼을 눌러
-사진 내용을 설명하는 것도 확인했습니다.
-지원되는 파일 전달 기능이 없는 클라이언트에서는 카드에 오류 안내가 표시됩니다.
+`points`는 `{image_id, point_id, x, y, annotation}` 목록이며 저장된 점이 없으면 `[]`입니다.
+좌표는 0~1 범위이며 (0,0)은 좌측 상단, (1,1)은 우측 하단입니다.
+`add_point`의 point_id는 이미지별로 1부터 서버가 발급하며 동시 요청도 트랜잭션으로 처리합니다.
+`update_point`는 x/y만 또는 annotation만 수정할 수 있고 생략한 값은 유지합니다.
+빈 annotation은 주석을 비우며, 수정할 값이 없는 요청은 거부합니다.
+좌표·주석은 `data/inventory.sqlite3`의 단일 `image_points` 테이블에 저장됩니다.
+DB와 테이블은 최초 사용 시 자동 생성되며 기존 원본 이미지에는 점이나 글씨를 합성하지 않습니다.
 
-참고: [ChatGPT 이미지 입력용 위젯 상태](https://developers.openai.com/plugins/build/chatgpt-ui#make-images-visible-to-the-model),
-[파일 업로드 API](https://developers.openai.com/plugins/reference#file-apis).
+서버 재시작 후 연결된 클라이언트의 도구 목록을 새로 고침해야 새 도구가 표시됩니다.
+네이티브 MCP 시각 입력을 지원하는 클라이언트가 필요합니다. 과거 일부 연결 경로에서
+네이티브 이미지 인식 실패가 기록되어 있으므로 실제 사용하는 ChatGPT 연결에서도
+저장 이미지 조회와 카메라 촬영 후 이미지 인식을 확인해야 합니다.
 
 프로젝트는 `data/gpt/{프로젝트ID}.json`, GPT 이미지 원본은
 `data/images/{이미지ID}.{확장자}`에 저장됩니다. 최근 이미지 조회 도구와

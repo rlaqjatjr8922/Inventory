@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import math
+import image_points
 import hmac
 import os
 import re
@@ -42,6 +44,8 @@ TOOL_NAMES = {
     "update_project",
     "get_image",
     "take_photo",
+    "add_point",
+    "update_point",
 }
 
 _WRITE_LOCK = threading.RLock()
@@ -89,7 +93,6 @@ class WorkPayload(BaseModel):
         ),
     )
     summary: str = Field("", description="날짜별 짧은 요약. 비우면 서버가 자동 생성합니다.")
-    result: str = Field("", description="확인된 작업 결과. 확인되지 않은 내용은 쓰지 않습니다.")
 
     @model_validator(mode="before")
     @classmethod
@@ -102,7 +105,6 @@ class WorkPayload(BaseModel):
             "내용": "content",
             "덮어쓰기": "overwrite",
             "요약": "summary",
-            "결과": "result",
         }
         for old, new in aliases.items():
             if new not in result and old in result:
@@ -313,11 +315,9 @@ def add_work_data(
     content: str,
     overwrite: bool = False,
     summary: str = "",
-    result: str = "",
 ) -> dict[str, Any]:
     content = str(content or "").strip()
     summary = str(summary or "").strip()
-    result = str(result or "").strip()
     if not content:
         raise GPTAPIError(400, "작업내용이 비어 있습니다.")
 
@@ -326,7 +326,6 @@ def add_work_data(
         "작업날짜": today,
         "요약": summary or _summary(content),
         "세부": content,
-        "결과": result,
     }
 
     with _WRITE_LOCK:
@@ -569,9 +568,81 @@ def take_photo_data() -> tuple[int, Path]:
 
 def _image_response(image_id: int, path: Path) -> dict:
     try:
-        return image_response(image_id, path)
+        response = image_response(image_id, path)
+        response["points"] = image_points.list_points(IMAGE_DIR.parent / "inventory.sqlite3", image_id)
+        return response
     except (OSError, UnidentifiedImageError, ValueError) as error:
         raise GPTAPIError(422, "이미지 파일을 읽거나 변환할 수 없습니다.") from error
+
+
+def tool_image_response(image_id, path):
+    response = _image_response(image_id, path)
+    image_points.latest_tool_image(IMAGE_DIR.parent / "inventory.sqlite3", image_id)
+    return response
+
+
+class PointPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    annotation: str
+
+
+class PointUpdatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    x: float | None = Field(None, ge=0, le=1)
+    y: float | None = Field(None, ge=0, le=1)
+    annotation: str | None = None
+
+
+def _point_changes(x, y, annotation):
+    changes = {}
+    for key, value in (("x", x), ("y", y)):
+        if value is not None:
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 1:
+                raise GPTAPIError(422, "좌표는 0~1 사이의 유한한 숫자여야 합니다.")
+            changes[key] = value
+    if annotation is not None:
+        if not isinstance(annotation, str):
+            raise GPTAPIError(422, "annotation은 문자열이어야 합니다.")
+        changes["annotation"] = annotation
+    return changes
+
+
+def add_point_data(image_id, x, y, annotation):
+    get_image_path(image_id)
+    changes = _point_changes(x, y, annotation)
+    if len(changes) != 3:
+        raise GPTAPIError(422, "x, y, annotation이 필요합니다.")
+    return image_points.add_point(IMAGE_DIR.parent / "inventory.sqlite3", image_id, changes)
+
+
+def update_point_data(image_id, point_id, x=None, y=None, annotation=None):
+    get_image_path(image_id)
+    changes = _point_changes(x, y, annotation)
+    if not changes:
+        raise GPTAPIError(422, "수정할 좌표 또는 annotation이 필요합니다.")
+    result = image_points.update_point(IMAGE_DIR.parent / "inventory.sqlite3", image_id, point_id, changes)
+    if result is None:
+        raise GPTAPIError(404, "해당 이미지의 point를 찾을 수 없습니다.")
+    return result
+
+
+@router.post("/image/{image_id}/points", operation_id="add_point")
+def add_point(image_id: int, payload: PointPayload):
+    """정규화 좌표 (0,0) 좌측 상단 ~ (1,1) 우측 하단에 주석을 저장합니다."""
+    try:
+        return add_point_data(image_id, **payload.model_dump())
+    except GPTAPIError as error:
+        raise _http_error(error) from error
+
+
+@router.patch("/image/{image_id}/points/{point_id}", operation_id="update_point")
+def update_point(image_id: int, point_id: int, payload: PointUpdatePayload):
+    try:
+        return update_point_data(image_id, point_id, **payload.model_dump())
+    except GPTAPIError as error:
+        raise _http_error(error) from error
 
 
 def _http_error(error: GPTAPIError) -> HTTPException:
@@ -621,7 +692,7 @@ def search_projects(
 def get_image(image_id: int):
     try:
         path = get_image_path(image_id)
-        return _image_response(image_id, path)
+        return tool_image_response(image_id, path)
     except GPTAPIError as error:
         raise _http_error(error) from error
 
@@ -635,7 +706,7 @@ def get_image(image_id: int):
 def take_photo():
     try:
         image_id, path = take_photo_data()
-        return _image_response(image_id, path)
+        return tool_image_response(image_id, path)
     except GPTAPIError as error:
         raise _http_error(error) from error
 
@@ -741,7 +812,6 @@ def add_work(
             values.content,
             values.overwrite,
             values.summary,
-            values.result,
         )
     except GPTAPIError as error:
         raise _http_error(error) from error

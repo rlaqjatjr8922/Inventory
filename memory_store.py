@@ -1,8 +1,11 @@
 import json
+import hashlib
 import os
-import shutil
+import re
+from functools import wraps
+
+import gpt_api
 import tempfile
-import uuid
 
 from datetime import datetime
 from pathlib import Path
@@ -38,11 +41,10 @@ def initialize():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     MEMORY_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-    if not MEMORIES_FILE.exists():
-        save_json(MEMORIES_FILE, {})
-
     if not CATEGORIES_FILE.exists():
         save_json(CATEGORIES_FILE, DEFAULT_CATEGORIES)
+
+    migrate_legacy_memories()
 
 
 def load_json(path, default):
@@ -79,9 +81,105 @@ def save_json(path, data):
         raise
 
 
+def shared_write(operation):
+    @wraps(operation)
+    def locked(*args, **kwargs):
+        with gpt_api._WRITE_LOCK:
+            return operation(*args, **kwargs)
+    return locked
+
+
+def _projects():
+    gpt_api._ensure_directories()
+    return {
+        str(int(path.stem)): gpt_api._load(int(path.stem))
+        for path in gpt_api.GPT_DIR.glob("*.json")
+        if path.stem.isdigit()
+    }
+
+
+def _next_project_id():
+    ids = [int(key) for key in _projects()]
+    # Never reuse IDs of deleted projects that were migrated from the old store.
+    ids.extend(int(value) for value in _migration_map().values())
+    return max(ids, default=0) + 1
+
+
+def _migration_map():
+    path = DATA_DIR / "memory_project_ids.json"
+    if not path.exists():
+        return {}
+    with path.open(encoding="utf-8") as file:
+        return json.load(file)
+
+
+@shared_write
+def migrate_legacy_memories():
+    if not MEMORIES_FILE.exists():
+        return
+    # Read strictly: malformed legacy data must never be silently discarded.
+    with MEMORIES_FILE.open(encoding="utf-8") as file:
+        legacy = json.load(file)
+    if not isinstance(legacy, dict):
+        raise ValueError("기존 메모 파일 형식이 잘못되었습니다.")
+    mapping = _migration_map()
+    projects = _projects()
+    for key, original in legacy.items():
+        if key in mapping:
+            continue
+        # Recover after a crash between the project write and the mapping write.
+        recovered = next((pid for pid, item in projects.items()
+                          if item.get("_legacy_memory_key") == key), None)
+        if recovered is not None:
+            mapping[key] = int(recovered)
+            save_json(DATA_DIR / "memory_project_ids.json", mapping)
+            continue
+        data = json.loads(json.dumps(original))
+        replacements = {}
+        for attachment in data.get("첨부파일", []):
+            old_id = str(attachment["아이디"])
+            source = (DATA_DIR / attachment["파일경로"]).resolve()
+            if not source.is_relative_to(MEMORY_UPLOAD_DIR.resolve()):
+                raise ValueError("기존 메모 이미지 경로가 잘못되었습니다.")
+            new_id, destination = gpt_api._save_image_bytes(
+                source.read_bytes(), source.suffix.lower())
+            replacements[old_id] = new_id
+            attachment["아이디"] = new_id
+            attachment["파일경로"] = "images/" + destination.name
+        def rewrite(value):
+            if isinstance(value, str):
+                return re.sub(r"\[\[이미지:(\d+)\]\]",
+                              lambda m: "[[이미지:" + str(replacements.get(m[1], m[1])) + "]]", value)
+            if isinstance(value, list):
+                return [rewrite(item) for item in value]
+            if isinstance(value, dict):
+                return {name: rewrite(item) for name, item in value.items()}
+            return value
+        data = rewrite(data)
+        data["_legacy_memory_key"] = key
+        project_id = _next_project_id()
+        gpt_api._save(project_id, data)
+        projects[str(project_id)] = data
+        mapping[key] = project_id
+        save_json(DATA_DIR / "memory_project_ids.json", mapping)
+    # Original JSON and image files remain untouched as a migration backup.
+
+
 def load_memories():
-    data = load_json(MEMORIES_FILE, {})
-    return data if isinstance(data, dict) else {}
+    with gpt_api._WRITE_LOCK:
+        migrate_legacy_memories()
+        return _projects()
+
+
+def _resolve_key(memory_key):
+    key = str(memory_key)
+    if key.isdigit():
+        return str(int(key))
+    migrate_legacy_memories()
+    mapped = _migration_map().get(key)
+    if mapped is None:
+        raise ValueError("메모를 찾을 수 없습니다.")
+    return str(mapped)
 
 
 def load_categories():
@@ -96,6 +194,10 @@ def load_categories():
         if name and name not in result:
             result.append(name)
 
+    for memory in load_memories().values():
+        category = str(memory.get("상위태그", "")).strip()
+        if category and category not in result:
+            result.append(category)
     return result or list(DEFAULT_CATEGORIES)
 
 
@@ -133,9 +235,8 @@ def normalize_work_items(value):
         work_date = str(item.get("작업날짜", "")).strip()
         summary = str(item.get("요약", "")).strip()
         details = str(item.get("세부", "")).strip()
-        outcome = str(item.get("결과", "")).strip()
 
-        if not any((summary, details, outcome)):
+        if not any((summary, details)):
             continue
 
         if not work_date:
@@ -144,8 +245,7 @@ def normalize_work_items(value):
         result.append({
             "작업날짜": work_date,
             "요약": summary,
-            "세부": details,
-            "결과": outcome
+            "세부": details
         })
 
     return result
@@ -184,6 +284,7 @@ def normalize_memory(data, existing=None):
     attachments = existing.get("첨부파일", [])
 
     return {
+        **existing,
         "상위태그": category,
         "제목": title,
         "생성일시": created_at,
@@ -197,53 +298,101 @@ def normalize_memory(data, existing=None):
 
 
 def serialize(memory_key, memory):
+    attachments = list(memory.get("첨부파일", []))
+    attached_ids = {int(item["아이디"]) for item in attachments}
+    for value in re.findall(r"\[\[이미지:(\d+)\]\]", json.dumps(memory, ensure_ascii=False)):
+        image_id = int(value)
+        if image_id in attached_ids:
+            continue
+        try:
+            path = gpt_api.get_image_path(image_id)
+        except gpt_api.GPTAPIError:
+            continue
+        attachments.append({"아이디": image_id, "원본파일명": path.name,
+                            "설명": "본문에서 참조한 이미지", "참조전용": True})
+        attached_ids.add(image_id)
     return {
         "메모키": memory_key,
-        **memory
+        **memory,
+        "첨부파일": attachments,
+        "버전": _version(memory),
     }
 
 
+def _version(memory):
+    content = {key: value for key, value in memory.items()
+               if key not in {"수정일시", "첨부파일"}}
+    return hashlib.sha256(json.dumps(content, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+
+
+@shared_write
 def create_memory(data):
-    memories = load_memories()
-    memory_key = uuid.uuid4().hex
-    memories[memory_key] = normalize_memory(data)
-    save_json(MEMORIES_FILE, memories)
-    return serialize(memory_key, memories[memory_key])
+    migrate_legacy_memories()
+    normalized = normalize_memory(data)
+    project_id = _next_project_id()
+    gpt_api._save(project_id, normalized)
+    return serialize(str(project_id), normalized)
 
 
 def get_memory(memory_key):
-    memory = load_memories().get(memory_key)
+    key = _resolve_key(memory_key)
+    memory = load_memories().get(key)
     if memory is None:
         raise ValueError("메모를 찾을 수 없습니다.")
-    return serialize(memory_key, memory)
+    return serialize(key, memory)
 
 
+@shared_write
 def update_memory(memory_key, data):
-    memories = load_memories()
-    existing = memories.get(memory_key)
-
+    key = _resolve_key(memory_key)
+    existing = load_memories().get(key)
     if existing is None:
         raise ValueError("메모를 찾을 수 없습니다.")
+    if data.get("버전") and data["버전"] != _version(existing):
+        raise ValueError("플러그인 또는 다른 화면에서 메모가 변경되었습니다. 입력한 내용을 복사한 뒤 메모를 다시 열어주세요.")
+    normalized = normalize_memory(data, existing)
+    gpt_api._save(int(key), normalized)
+    return serialize(key, normalized)
 
-    memories[memory_key] = normalize_memory(data, existing)
-    save_json(MEMORIES_FILE, memories)
-    return serialize(memory_key, memories[memory_key])
+
+@shared_write
+def update_memory_fields(memory_key, data):
+    """Save only the five editor fields; never replace work or attachments."""
+    existing = get_memory(memory_key)
+    fields = ("상위태그", "제목", "우선도", "상태", "최종결론")
+    changes = {key: data[key] for key in fields if key in data}
+    return update_memory(memory_key, {**existing, **changes, "버전": data.get("버전")})
 
 
+@shared_write
+def change_work(memory_key, work_index, data, delete=False):
+    existing = get_memory(memory_key)
+    # Index addressing is safe only against the exact saved revision.
+    if not data.get("버전") or data["버전"] != existing["버전"]:
+        raise ValueError("다른 화면에서 메모가 변경되었습니다. 메모를 다시 열어주세요.")
+    works = list(existing.get("작업내용", []))
+    if work_index < 0 or work_index >= len(works):
+        raise ValueError("작업내용을 찾을 수 없습니다.")
+    if delete:
+        del works[work_index]
+    else:
+        normalized = normalize_work_items([data])
+        if not normalized:
+            raise ValueError("요약 또는 상세 작업내용을 입력해주세요.")
+        datetime.strptime(normalized[0]["작업날짜"], "%Y-%m-%d")
+        works[work_index] = normalized[0]
+    return update_memory(memory_key, {**existing, "작업내용": works})
+
+
+@shared_write
 def delete_memory(memory_key):
-    memories = load_memories()
-
-    if memory_key not in memories:
+    key = _resolve_key(memory_key)
+    memory = load_memories().get(key)
+    if memory is None:
         raise ValueError("메모를 찾을 수 없습니다.")
-
-    deleted = memories.pop(memory_key)
-    save_json(MEMORIES_FILE, memories)
-
-    upload_directory = MEMORY_UPLOAD_DIR / memory_key
-    if upload_directory.exists():
-        shutil.rmtree(upload_directory)
-
-    return deleted
+    gpt_api._path(int(key)).unlink()
+    # Images have global IDs and may be referenced by other projects.
+    return memory
 
 
 def searchable_text(memory):
@@ -259,8 +408,7 @@ def searchable_text(memory):
             values.extend([
                 item.get("작업날짜", ""),
                 item.get("요약", ""),
-                item.get("세부", ""),
-                item.get("결과", "")
+                item.get("세부", "")
             ])
 
     for attachment in memory.get("첨부파일", []):
@@ -314,91 +462,60 @@ def search_memories(query="", category="", status="", minimum_priority=0, limit=
     return results[:limit]
 
 
+@shared_write
 def add_attachment(memory_key, file_data, content_type, extension, original_name, description):
-    memories = load_memories()
-    memory = memories.get(memory_key)
-
+    key = _resolve_key(memory_key)
+    memory = load_memories().get(key)
     if memory is None:
         raise ValueError("메모를 찾을 수 없습니다.")
-
-    attachments = memory.setdefault("첨부파일", [])
-    existing_ids = [
-        int(item.get("아이디", 0) or 0)
-        for item in attachments
-        if isinstance(item, dict)
-    ]
-    attachment_id = max(existing_ids, default=0) + 1
-
-    upload_directory = MEMORY_UPLOAD_DIR / memory_key
-    upload_directory.mkdir(parents=True, exist_ok=True)
-    filename = f"{attachment_id}{extension}"
-    file_path = upload_directory / filename
-    file_path.write_bytes(file_data)
-
+    try:
+        image_id, path = gpt_api._save_image_bytes(file_data, extension)
+    except gpt_api.GPTAPIError as error:
+        raise ValueError(error.detail) from error
     attachment = {
-        "아이디": attachment_id,
+        "아이디": image_id,
         "종류": "이미지",
-        "파일경로": f"memory_uploads/{memory_key}/{filename}",
-        "원본파일명": str(original_name or filename).strip()[:255],
+        "파일경로": "images/" + path.name,
+        "원본파일명": str(original_name or path.name).strip()[:255],
         "설명": str(description or "").strip()[:500],
-        "콘텐츠형식": content_type
+        "콘텐츠형식": content_type,
     }
-
-    attachments.append(attachment)
+    memory.setdefault("첨부파일", []).append(attachment)
     memory["수정일시"] = now_text()
-    save_json(MEMORIES_FILE, memories)
+    gpt_api._save(int(key), memory)
     return attachment
 
 
 def get_attachment_path(memory_key, attachment_id):
-    memory = load_memories().get(memory_key)
-
-    if memory is None:
-        raise ValueError("메모를 찾을 수 없습니다.")
-
-    for attachment in memory.get("첨부파일", []):
-        if int(attachment.get("아이디", 0)) == int(attachment_id):
-            relative_path = Path(str(attachment.get("파일경로", "")))
-            expected_prefix = Path("memory_uploads") / memory_key
-
-            if relative_path.parent != expected_prefix:
-                raise ValueError("첨부파일 경로가 잘못되었습니다.")
-
-            path = DATA_DIR / relative_path
-            if not path.is_file():
-                raise ValueError("첨부파일을 찾을 수 없습니다.")
-
-            return path, attachment
-
-    raise ValueError("첨부파일을 찾을 수 없습니다.")
+    memory = get_memory(memory_key)
+    attachment = next((item for item in memory.get("첨부파일", [])
+                       if int(item.get("아이디", 0)) == int(attachment_id)), None)
+    referenced = re.search(r"\[\[이미지:" + re.escape(str(attachment_id)) + r"\]\]",
+                           json.dumps(memory, ensure_ascii=False))
+    if attachment is None and not referenced:
+        raise ValueError("첨부파일을 찾을 수 없습니다.")
+    try:
+        path = gpt_api.get_image_path(int(attachment_id))
+    except gpt_api.GPTAPIError as error:
+        raise ValueError(error.detail) from error
+    return path, attachment or {
+        "아이디": int(attachment_id),
+        "콘텐츠형식": gpt_api.IMAGE_TYPES[path.suffix.lower()],
+    }
 
 
+@shared_write
 def delete_attachment(memory_key, attachment_id):
-    memories = load_memories()
-    memory = memories.get(memory_key)
-
+    key = _resolve_key(memory_key)
+    memory = load_memories().get(key)
     if memory is None:
         raise ValueError("메모를 찾을 수 없습니다.")
-
     attachments = memory.get("첨부파일", [])
-    target = next(
-        (
-            item for item in attachments
-            if int(item.get("아이디", 0)) == int(attachment_id)
-        ),
-        None
-    )
-
+    target = next((item for item in attachments
+                   if int(item.get("아이디", 0)) == int(attachment_id)), None)
     if target is None:
         raise ValueError("첨부파일을 찾을 수 없습니다.")
-
-    try:
-        path, _ = get_attachment_path(memory_key, attachment_id)
-        path.unlink(missing_ok=True)
-    except ValueError:
-        pass
-
     memory["첨부파일"] = [item for item in attachments if item is not target]
     memory["수정일시"] = now_text()
-    save_json(MEMORIES_FILE, memories)
+    gpt_api._save(int(key), memory)
     return target

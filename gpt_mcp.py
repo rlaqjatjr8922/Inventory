@@ -2,26 +2,18 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Callable, TypeVar
 from pathlib import Path
+import json
 
 from mcp.server.mcpserver import MCPServer
 from mcp.types import CallToolResult, ImageContent, TextContent
 from mcp.server.mcpserver.exceptions import ToolError
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 import gpt_api
 
 
 ResultT = TypeVar("ResultT")
-IMAGE_WIDGET_URI = "ui://simsimpc-inventory/image-input-v2.html"
-IMAGE_WIDGET_META = {
-    "ui": {"resourceUri": IMAGE_WIDGET_URI},
-    "openai/outputTemplate": IMAGE_WIDGET_URI,
-}
-
-
-class ImageToolOutput(BaseModel):
-    image_id: int
-    mime_type: str
+IMAGE_WIDGET_URI = "ui://simsimpc-inventory/image-input-v4.html"
 
 
 inventory_mcp = MCPServer(
@@ -34,9 +26,16 @@ inventory_mcp = MCPServer(
         "add_work에는 현재 대화에서 확인된 내용을 요약하지 말고 최대한 자세히 기록하며 추측하지 마세요. "
         "같은 날짜 기록이 반환되면 기존 기록과 새 기록을 빠짐없이 합쳐 overwrite=true로 다시 보내세요. "
         "이미지는 [[이미지:ID]]로 언급하고 get_image와 take_photo 결과의 image ID를 이미지와 함께 유지하세요. "
-        "take_photo는 서버 PC를 거쳐 노트북의 camera_agent.py에 촬영을 요청합니다."
+        "take_photo는 서버 PC를 거쳐 노트북의 camera_agent.py에 촬영을 요청합니다. "
+        "get_image와 take_photo의 네이티브 이미지 콘텐츠를 직접 분석하세요. "
+        "이미지는 한 번만 전달되므로 재첨부하거나 반복 호출하지 마세요. "
+        "point 좌표는 좌측 상단 (0,0), 우측 하단 (1,1)의 정규화 좌표입니다. "
+        "get_image의 points는 저장된 image_id, point_id, x, y, annotation 목록이며 없으면 빈 목록입니다. "
+        "add_point로 점을 만들고 update_point로 지정한 좌표 또는 주석만 수정하세요. "
+        "작업내용에서 단일 포인트는 {12:1}, 여러 포인트는 {12:[1,2]} 형식으로 참조하세요. "
+        "get_image와 take_photo가 성공하면 관리자 화면의 GPT 최근 호출 이미지가 자동 갱신됩니다."
     ),
-    version="1.0.0",
+    version="1.1.0",
 )
 
 
@@ -47,6 +46,16 @@ def _run(operation: Callable[[], ResultT]) -> ResultT:
         raise ToolError(error.detail) from error
 
 
+@inventory_mcp.resource(
+    "ui://simsimpc-inventory/image-input-v3.html",
+    name="inventory-image-input-v3",
+    mime_type="text/html;profile=mcp-app",
+)
+@inventory_mcp.resource(
+    "ui://simsimpc-inventory/image-input-v2.html",
+    name="inventory-image-input-legacy",
+    mime_type="text/html;profile=mcp-app",
+)
 @inventory_mcp.resource(
     IMAGE_WIDGET_URI,
     name="inventory-image-input",
@@ -113,7 +122,6 @@ def add_work(
         ),
     ] = False,
     summary: Annotated[str, Field(description="날짜별 짧은 요약. 비우면 서버가 자동 생성")] = "",
-    result: Annotated[str, Field(description="확인된 작업 결과. 확인되지 않은 내용은 쓰지 않음")] = "",
 ) -> Any:
     """오늘 작업을 상세히 저장합니다.
 
@@ -127,7 +135,6 @@ def add_work(
             content,
             overwrite,
             summary,
-            result,
         )
     )
 
@@ -157,36 +164,58 @@ def update_project(
     return _run(lambda: gpt_api.update_project_data(project_id, changes))
 
 
-@inventory_mcp.tool(name="get_image", meta=IMAGE_WIDGET_META)
+@inventory_mcp.tool(name="get_image", structured_output=False)
 def get_image(
     image_id: Annotated[int, Field(description="가져올 저장 이미지 ID")],
-) -> Annotated[CallToolResult, ImageToolOutput]:
-    """저장된 이미지 자체와 그 image ID를 함께 반환합니다."""
+) -> CallToolResult:
+    """JPEG/PNG 이미지 콘텐츠를 한 번만 반환하고 image_id와 points를 함께 제공합니다.
+
+    points는 image_id, point_id, x, y, annotation 목록이며 없으면 []입니다.
+    성공 시 관리자 화면의 GPT 최근 호출 이미지를 자동 갱신합니다.
+    """
 
     path = _run(lambda: gpt_api.get_image_path(image_id))
     return _image_content(image_id, path)
 
 
-@inventory_mcp.tool(name="take_photo", meta=IMAGE_WIDGET_META)
-def take_photo() -> Annotated[CallToolResult, ImageToolOutput]:
-    """노트북 카메라 에이전트로 촬영하고 이미지 자체와 새 image ID를 함께 반환합니다."""
+@inventory_mcp.tool(name="take_photo", structured_output=False)
+def take_photo() -> CallToolResult:
+    """노트북 카메라로 촬영하고 실제 이미지 한 개와 새 image_id, points를 반환합니다.
+
+    성공 시 관리자 화면의 GPT 최근 호출 이미지를 자동 갱신합니다.
+    """
 
     image_id, path = _run(gpt_api.take_photo_data)
     return _image_content(image_id, path)
 
 
 def _image_content(image_id, path) -> CallToolResult:
-    response = _run(lambda: gpt_api._image_response(image_id, path))
+    response = _run(lambda: gpt_api.tool_image_response(image_id, path))
     # Return native MCP blocks, never a JSON string containing base64.
     block = response["content_items"][1]
     return CallToolResult(
         content=[
-            TextContent(**response["content_items"][0]),
+            TextContent(type="text", text=json.dumps({"image_id": image_id, "points": response["points"]}, ensure_ascii=False)),
             ImageContent(**block),
         ],
-        structured_content={"image_id": image_id, "mime_type": block["mimeType"]},
-        meta={"inventory/image": block},
+        structuredContent={"image_id": image_id, "mime_type": block["mimeType"], "points": response["points"]},
     )
+
+
+@inventory_mcp.tool(name="add_point", structured_output=False)
+def add_point(image_id: int, x: Annotated[float, Field(ge=0, le=1)],
+              y: Annotated[float, Field(ge=0, le=1)], annotation: str) -> Any:
+    """이미지에 점을 저장합니다. (0,0)은 좌측 상단, (1,1)은 우측 하단입니다."""
+    return _run(lambda: gpt_api.add_point_data(image_id, x, y, annotation))
+
+
+@inventory_mcp.tool(name="update_point", structured_output=False)
+def update_point(image_id: int, point_id: int,
+                 x: Annotated[float | None, Field(ge=0, le=1)] = None,
+                 y: Annotated[float | None, Field(ge=0, le=1)] = None,
+                 annotation: str | None = None) -> Any:
+    """지정한 x/y 좌표 또는 annotation만 수정합니다. 생략한 값은 유지합니다."""
+    return _run(lambda: gpt_api.update_point_data(image_id, point_id, x, y, annotation))
 
 
 mcp_http_app = inventory_mcp.streamable_http_app(

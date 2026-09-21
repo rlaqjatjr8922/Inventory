@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import memory_store
+import gpt_api
 
 
 class MemoryStoreTests(unittest.TestCase):
@@ -14,6 +15,8 @@ class MemoryStoreTests(unittest.TestCase):
         self.data_dir = Path(self.temp.name) / "data"
 
         patches = [
+            patch.object(gpt_api, "GPT_DIR", self.data_dir / "gpt"),
+            patch.object(gpt_api, "IMAGE_DIR", self.data_dir / "images"),
             patch.object(memory_store, "DATA_DIR", self.data_dir),
             patch.object(memory_store, "MEMORIES_FILE", self.data_dir / "memories.json"),
             patch.object(memory_store, "CATEGORIES_FILE", self.data_dir / "memory_categories.json"),
@@ -40,6 +43,48 @@ class MemoryStoreTests(unittest.TestCase):
             }],
             "최종결론": "테스트 진행 중"
         }
+
+    def test_basic_save_cannot_replace_work_and_work_save_preserves_basic(self):
+        item = memory_store.create_memory(self.sample())
+        key = item["메모키"]
+        saved = memory_store.update_memory_fields(key, {
+            "버전": item["버전"], "제목": "new title", "최종결론": "new conclusion",
+            "작업내용": [], "첨부파일": []})
+        self.assertEqual(saved["작업내용"], item["작업내용"])
+        changed = memory_store.change_work(key, 0, {
+            "버전": saved["버전"], "작업날짜": "2026-09-21", "요약": "changed",
+            "세부": "before {12:[1,2,999]} after", "제목": "must not save"})
+        self.assertEqual(changed["제목"], "new title")
+        self.assertEqual(changed["최종결론"], "new conclusion")
+        self.assertEqual(changed["작업내용"][0]["요약"], "changed")
+        deleted = memory_store.change_work(key, 0, {"버전": changed["버전"]}, delete=True)
+        self.assertEqual(deleted["작업내용"], [])
+        self.assertEqual(deleted["제목"], "new title")
+
+    def test_stale_work_index_cannot_modify_different_work(self):
+        data = self.sample()
+        data["작업내용"].append({"작업날짜": "2026-09-21", "요약": "second", "세부": "second"})
+        item = memory_store.create_memory(data)
+        key = item["메모키"]
+        current = memory_store.change_work(key, 0, {"버전": item["버전"]}, delete=True)
+        with self.assertRaisesRegex(ValueError, "변경되었습니다"):
+            memory_store.change_work(key, 0, {"버전": item["버전"]}, delete=True)
+        self.assertEqual(memory_store.get_memory(key)["작업내용"], current["작업내용"])
+        with self.assertRaises(ValueError):
+            memory_store.change_work(key, -1, {"버전": current["버전"]}, delete=True)
+
+    def test_point_reference_image_endpoint_preserves_original(self):
+        from PIL import Image
+        import app
+        path = gpt_api.IMAGE_DIR / "12.png"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (80, 40), "red").save(path)
+        original = path.read_bytes()
+        gpt_api.add_point_data(12, .25, .75, "IC")
+        result = app.get_memory_image(12)
+        self.assertEqual(result["points"][0]["annotation"], "IC")
+        self.assertEqual(len([b for b in result["content_items"] if b["type"] == "image"]), 1)
+        self.assertEqual(path.read_bytes(), original)
 
     def test_create_uses_key_outside_stored_memory(self):
         created = memory_store.create_memory(self.sample())
@@ -107,7 +152,7 @@ class MemoryStoreTests(unittest.TestCase):
         self.assertEqual(stored_attachment["설명"], "C2342 주변")
 
         memory_store.delete_attachment(key, attachment["아이디"])
-        self.assertFalse(path.exists())
+        self.assertTrue(path.exists())  # Shared plugin images must remain available.
         self.assertEqual(memory_store.get_memory(key)["첨부파일"], [])
 
     def test_validation_rejects_unknown_category(self):
